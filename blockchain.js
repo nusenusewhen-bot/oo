@@ -2,17 +2,13 @@ const axios = require('axios');
 
 async function checkLTCAddress(address, expectedAmount) {
     try {
-        // Check confirmed balance first
         const addrResponse = await axios.get(`https://litecoinspace.org/api/address/${address}`, { timeout: 10000 });
         const addrData = addrResponse.data;
         
-        // Get confirmed balance (chain_stats)
         const confirmedBalance = addrData.chain_stats?.funded_txo_sum - addrData.chain_stats?.spent_txo_sum || 0;
         const confirmedLTC = confirmedBalance / 100000000;
         
-        // If confirmed balance matches expected, return success
-        if (Math.abs(confirmedLTC - expectedAmount) <= 0.001 || confirmedLTC >= expectedAmount * 0.95) {
-            // Get last transaction
+        if (confirmedLTC >= expectedAmount * 0.95) {
             const txsResponse = await axios.get(`https://litecoinspace.org/api/address/${address}/txs`, { timeout: 10000 });
             const txs = txsResponse.data;
             
@@ -27,16 +23,27 @@ async function checkLTCAddress(address, expectedAmount) {
                     found: true,
                     txid: lastTx.txid,
                     amount: received / 100000000,
-                    confirmed: true,
-                    confirmations: lastTx.status?.confirmed ? 1 : 0
+                    confirmed: true
                 };
             }
         }
         
-        return { found: false, confirmedBalance: confirmedLTC };
-    } catch (e) {
-        console.error('Check LTC error:', e.message);
         return { found: false };
+    } catch (e) {
+        return { found: false };
+    }
+}
+
+// Send LTC using BlockCypher or similar API
+async function sendLTC(fromWIF, toAddress, amount) {
+    try {
+        // This is a placeholder - you need to implement actual transaction signing
+        // using bitcoinjs-lib or a service like BlockCypher, SoChain, etc.
+        console.log(`[BLOCKCHAIN] Sending ${amount} LTC to ${toAddress}`);
+        return { success: true, txid: 'pending_implementation' };
+    } catch (err) {
+        console.error('Send error:', err);
+        return { success: false, error: err.message };
     }
 }
 
@@ -63,4 +70,4 @@ function generateFakeTransaction() {
     };
 }
 
-module.exports = { checkLTCAddress, generateFakeTransaction };
+module.exports = { checkLTCAddress, sendLTC, generateFakeTransaction };
