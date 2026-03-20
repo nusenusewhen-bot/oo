@@ -13,7 +13,7 @@ const client = new Client({
 });
 
 client.config = {
-    OWNER_ROLE_ID: '1483830222045577340',
+    OWNER_ROLE_ID: '1484229121134297306',
     HITTER_ROLE_ID: '1483830341142577356',
     WALLET_1: process.env.WALLET_1,
     WALLET_2: process.env.WALLET_2,
@@ -27,6 +27,20 @@ client.ticketAddresses = new Map();
 client.ticketRoles = new Map();
 client.userWallets = new Map();
 client.ltcPrice = 55.57;
+
+// Validate env vars
+if (!client.config.WALLET_1) {
+    console.error('❌ WALLET_1 (LTC mnemonic) not set in environment variables!');
+    process.exit(1);
+}
+if (!client.config.WALLET_2) {
+    console.error('❌ WALLET_2 (ETH/USDT mnemonic) not set in environment variables!');
+    process.exit(1);
+}
+
+console.log('✅ Wallets configured');
+console.log('WALLET_1 length:', client.config.WALLET_1.length);
+console.log('WALLET_2 length:', client.config.WALLET_2.length);
 
 loadCommands(client);
 loadHandlers(client);
