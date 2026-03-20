@@ -130,20 +130,57 @@ async function splitFunds(interaction, client) {
 }
 
 async function spawnPanel(interaction) {
-    const embed = new EmbedBuilder()
+    // Main header embed - matches your image
+    const mainEmbed = new EmbedBuilder()
         .setTitle("Jace's Auto Middleman")
-        .setDescription('• Paid Service\n• Read our ToS before using the bot: #tos-crypto')
+        .setDescription('• Paid Service\n• Read our ToS before using the bot: <#tos-crypto>')
         .setColor(0x2b2d31)
-        .addFields({ name: 'Fees:', value: '• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**' });
+        .addFields({ 
+            name: 'Fees:', 
+            value: '• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**' 
+        });
+
+    // Tutorial button row
+    const tutorialRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setLabel('Tutorial')
+            .setStyle(ButtonStyle.Link)
+            .setURL('https://example.com/tutorial')
+            .setEmoji('🔗')
+    );
+
+    // LTC Section embed - matches your image with Ł symbols
+    const ltcEmbed = new EmbedBuilder()
+        .setTitle('Ł • Request Litecoin • Ł')
+        .setColor(0x2b2d31);
 
     const ltcRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('request_ltc').setLabel('Request LTC').setStyle(ButtonStyle.Primary).setEmoji('🪙')
-    );
-    const usdtRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('request_usdt').setLabel('Request USDT [BEP-20]').setStyle(ButtonStyle.Success).setEmoji('💵')
+        new ButtonBuilder()
+            .setCustomId('request_ltc')
+            .setLabel('Request LTC')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('🪙')
     );
 
-    await interaction.channel.send({ embeds: [embed], components: [ltcRow, usdtRow] });
+    // USDT Section embed - matches your image
+    const usdtEmbed = new EmbedBuilder()
+        .setTitle('• Request USDT [BEP-20] •')
+        .setDescription('• Network: **BSC (BEP-20)**')
+        .setColor(0x2b2d31);
+
+    const usdtRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('request_usdt')
+            .setLabel('Request USDT [BEP-20]')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('💵')
+    );
+
+    // Send all messages
+    await interaction.channel.send({ embeds: [mainEmbed], components: [tutorialRow] });
+    await interaction.channel.send({ embeds: [ltcEmbed], components: [ltcRow] });
+    await interaction.channel.send({ embeds: [usdtEmbed], components: [usdtRow] });
+    
     await interaction.reply({ content: '✅ Panels spawned.', ephemeral: true });
 }
 
@@ -583,6 +620,12 @@ async function handleModals(interaction, client) {
         const receiving = interaction.fields.getTextInputValue('receiving');
 
         try {
+            // Validate wallet mnemonic exists
+            const walletMnemonic = type === 'ltc' ? client.config.WALLET_1 : client.config.WALLET_2;
+            if (!walletMnemonic) {
+                return interaction.reply({ content: `❌ WALLET_${type === 'ltc' ? '1' : '2'} not configured.`, ephemeral: true });
+            }
+
             const category = client.config.TICKET_CATEGORY || interaction.channel.parentId;
             const ticketNum = Math.floor(1000 + Math.random() * 9000);
             const channelName = `${type}-${user.username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}-${ticketNum}`;
@@ -596,9 +639,10 @@ async function handleModals(interaction, client) {
                 } else {
                     walletInfo = generateETHAddress(client.config.WALLET_2, addressIndex);
                 }
+                console.log(`Generated ${type} address:`, walletInfo.address);
             } catch (walletErr) {
                 console.error('Wallet generation error:', walletErr);
-                return interaction.reply({ content: '❌ Error generating wallet address.', ephemeral: true });
+                return interaction.reply({ content: `❌ Wallet error: ${walletErr.message}`, ephemeral: true });
             }
 
             if (!walletInfo || !walletInfo.address) {
@@ -685,7 +729,7 @@ async function handleModals(interaction, client) {
             
         } catch (error) {
             console.error('Error creating ticket:', error);
-            await interaction.reply({ content: '❌ Error creating ticket. Check bot permissions.', ephemeral: true });
+            await interaction.reply({ content: `❌ Error: ${error.message}`, ephemeral: true });
         }
     }
 
