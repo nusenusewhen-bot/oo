@@ -72,7 +72,7 @@ async function spawnPanel(interaction) {
         .addFields({ name: 'Fees:', value: '• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**' });
 
     const ltcRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('request_ltc').setLabel('Request LTC').setStyle(ButtonStyle.Primary).setEmoji('Ł')
+        new ButtonBuilder().setCustomId('request_ltc').setLabel('Request LTC').setStyle(ButtonStyle.Primary).setEmoji('💰')
     );
     const usdtRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('request_usdt').setLabel('Request USDT [BEP-20]').setStyle(ButtonStyle.Success).setEmoji('💵')
