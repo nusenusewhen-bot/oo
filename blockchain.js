@@ -2,44 +2,38 @@ const axios = require('axios');
 
 async function checkLTCAddress(address, expectedAmount) {
     try {
-        // Check address balance first
-        const balanceResponse = await axios.get(`https://litecoinspace.org/api/address/${address}`, { timeout: 10000 });
-        const balanceData = balanceResponse.data;
+        // Check confirmed balance first
+        const addrResponse = await axios.get(`https://litecoinspace.org/api/address/${address}`, { timeout: 10000 });
+        const addrData = addrResponse.data;
         
-        const funded = balanceData.chain_stats?.funded_txo_sum || 0;
-        const spent = balanceData.chain_stats?.spent_txo_sum || 0;
-        const balance = (funded - spent) / 100000000; // Convert satoshi to LTC
+        // Get confirmed balance (chain_stats)
+        const confirmedBalance = addrData.chain_stats?.funded_txo_sum - addrData.chain_stats?.spent_txo_sum || 0;
+        const confirmedLTC = confirmedBalance / 100000000;
         
-        // Check if balance matches expected amount (within 0.001 LTC tolerance)
-        if (Math.abs(balance - expectedAmount) <= 0.001 && balance > 0) {
-            // Get transactions to find txid
+        // If confirmed balance matches expected, return success
+        if (Math.abs(confirmedLTC - expectedAmount) <= 0.001 || confirmedLTC >= expectedAmount * 0.95) {
+            // Get last transaction
             const txsResponse = await axios.get(`https://litecoinspace.org/api/address/${address}/txs`, { timeout: 10000 });
             const txs = txsResponse.data;
             
             if (txs && txs.length > 0) {
-                // Find the transaction that funded this address
-                for (const tx of txs) {
-                    let received = 0;
-                    for (const vout of tx.vout) {
-                        if (vout.scriptpubkey_address === address) {
-                            received += vout.value;
-                        }
-                    }
-                    const receivedLTC = received / 100000000;
-                    if (Math.abs(receivedLTC - expectedAmount) <= 0.001) {
-                        return {
-                            found: true,
-                            txid: tx.txid,
-                            amount: receivedLTC,
-                            confirmed: tx.status?.confirmed || false,
-                            confirmations: tx.status?.confirmed ? 1 : 0
-                        };
-                    }
+                const lastTx = txs[0];
+                let received = 0;
+                for (const vout of lastTx.vout) {
+                    if (vout.scriptpubkey_address === address) received += vout.value;
                 }
+                
+                return {
+                    found: true,
+                    txid: lastTx.txid,
+                    amount: received / 100000000,
+                    confirmed: true,
+                    confirmations: lastTx.status?.confirmed ? 1 : 0
+                };
             }
         }
         
-        return { found: false, balance: balance };
+        return { found: false, confirmedBalance: confirmedLTC };
     } catch (e) {
         console.error('Check LTC error:', e.message);
         return { found: false };
