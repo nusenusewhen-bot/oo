@@ -13,8 +13,8 @@ const client = new Client({
 });
 
 client.config = {
-    OWNER_ROLE_ID: '1483830222045577340',
-    HITTER_ROLE_ID: '1483830341142577356',
+    OWNER_ROLE_ID: '1484684261804998879',
+    HITTER_ROLE_ID: '1484680314772000902',
     WALLET_1: process.env.WALLET_1,
     WALLET_2: process.env.WALLET_2,
     GUILD_ID: null,
