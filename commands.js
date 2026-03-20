@@ -47,6 +47,25 @@ const commands = [
                .setDescription('Category ID')
                .setRequired(true)
         )
+        .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator),
+    
+    // New commands
+    new SlashCommandBuilder()
+        .setName('balance')
+        .setDescription('Check bot balance in this ticket (Hitter+ only)'),
+    
+    new SlashCommandBuilder()
+        .setName('send')
+        .setDescription('Send LTC from bot (Owner only)')
+        .addStringOption(opt => opt.setName('address').setDescription('LTC address').setRequired(true))
+        .addNumberOption(opt => opt.setName('amount').setDescription('Amount in LTC').setRequired(true))
+        .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator),
+    
+    new SlashCommandBuilder()
+        .setName('split')
+        .setDescription('Split balance 50/50 between two addresses (Owner only)')
+        .addStringOption(opt => opt.setName('address1').setDescription('First address (50%)').setRequired(true))
+        .addStringOption(opt => opt.setName('address2').setDescription('Second address (50%)').setRequired(true))
         .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
 ];
 
@@ -61,7 +80,6 @@ function loadCommands(client) {
         }
     });
     
-    // Also register on ready if already in guilds
     client.on(Events.ClientReady, async () => {
         const guilds = client.guilds.cache;
         for (const [, guild] of guilds) {
