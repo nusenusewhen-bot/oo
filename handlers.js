@@ -1,6 +1,7 @@
 const { Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ChannelType, PermissionsBitField } = require('discord.js');
 const { generateLTCAddress, generateETHAddress } = require('./wallet');
 const { checkLTCAddress, generateFakeTransaction } = require('./blockchain');
+const axios = require('axios');
 
 function loadHandlers(client) {
     setInterval(async () => {
@@ -72,7 +73,7 @@ async function spawnPanel(interaction) {
         .addFields({ name: 'Fees:', value: '• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**' });
 
     const ltcRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('request_ltc').setLabel('Request LTC').setStyle(ButtonStyle.Primary).setEmoji('💰')
+        new ButtonBuilder().setCustomId('request_ltc').setLabel('Request LTC').setStyle(ButtonStyle.Primary).setEmoji('🪙')
     );
     const usdtRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('request_usdt').setLabel('Request USDT [BEP-20]').setStyle(ButtonStyle.Success).setEmoji('💵')
@@ -198,13 +199,27 @@ async function handleButtons(interaction, client) {
         const ticketData = client.activeTickets.get(ticketId);
         if (!ticketData) return interaction.reply({ content: '❌ Ticket expired.', ephemeral: true });
 
+        // Check if user is part of this ticket
+        if (user.id !== ticketData.creatorId && user.id !== ticketData.traderId) {
+            return interaction.reply({ content: '❌ You are not part of this trade.', ephemeral: true });
+        }
+
         if (!client.ticketRoles.has(ticketId)) client.ticketRoles.set(ticketId, {});
         const roles = client.ticketRoles.get(ticketId);
 
-        if (user.id === ticketData.creatorId) roles.creatorRole = role;
-        else if (user.id === ticketData.traderId) roles.traderRole = role;
+        // Prevent selecting same role twice or changing role
+        if (role === 'sender' || role === 'receiver') {
+            if (user.id === ticketData.creatorId) {
+                if (roles.creatorRole) return interaction.reply({ content: '❌ You already selected a role.', ephemeral: true });
+                roles.creatorRole = role;
+            } else if (user.id === ticketData.traderId) {
+                if (roles.traderRole) return interaction.reply({ content: '❌ You already selected a role.', ephemeral: true });
+                roles.traderRole = role;
+            }
+        }
 
-        await interaction.reply({ content: `✅ You selected: **${role === 'sender' ? 'Sender' : 'Receiver'}**`, ephemeral: true });
+        // Send public message instead of ephemeral
+        await interaction.reply({ content: `<@${user.id}> selected: **${role === 'sender' ? 'Sender' : 'Receiver'}**` });
 
         if (roles.creatorRole && roles.traderRole) {
             const channel = await client.channels.fetch(ticketId);
@@ -226,6 +241,32 @@ async function handleButtons(interaction, client) {
                 await roleMsg.edit({ embeds: [updatedEmbed], components: [confirmRow] });
             }
         }
+    }
+
+    if (customId.startsWith('reset_roles_')) {
+        const ticketId = customId.replace('reset_roles_', '');
+        client.ticketRoles.delete(ticketId);
+        
+        const channel = await client.channels.fetch(ticketId);
+        const messages = await channel.messages.fetch({ limit: 10 });
+        const roleMsg = messages.find(m => m.embeds[0]?.title?.includes('Select your role'));
+        
+        if (roleMsg) {
+            const roleEmbed = new EmbedBuilder()
+                .setTitle('🛡️ • Select your role')
+                .setDescription('• "Sender" if you are Sending LTC to the bot.\n• "Receiver" if you are Receiving LTC later from the bot.')
+                .setColor(0x2b2d31);
+
+            const roleRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`role_sender_${ticketId}`).setLabel('Sender').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId(`role_receiver_${ticketId}`).setLabel('Receiver').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId(`role_reset_${ticketId}`).setLabel('Reset').setStyle(ButtonStyle.Danger)
+            );
+
+            await roleMsg.edit({ embeds: [roleEmbed], components: [roleRow] });
+        }
+        
+        await interaction.reply({ content: 'Roles reset. Please select again.' });
     }
 
     if (customId.startsWith('confirm_roles_')) {
@@ -317,29 +358,69 @@ async function handleButtons(interaction, client) {
     if (customId.startsWith('confirm_amount_')) {
         const ticketId = customId.replace('confirm_amount_', '');
         const ticketData = client.activeTickets.get(ticketId);
+        
+        if (!ticketData) return interaction.reply({ content: '❌ Ticket not found.', ephemeral: true });
+        
+        // Check if user already confirmed
+        if (!ticketData.confirmedBy) ticketData.confirmedBy = [];
+        
+        if (ticketData.confirmedBy.includes(user.id)) {
+            return interaction.reply({ content: '❌ You already confirmed.', ephemeral: true });
+        }
+        
+        // Check if user is sender or receiver
+        const isSender = user.id === ticketData.senderId;
+        const isReceiver = user.id === ticketData.receiverId;
+        
+        if (!isSender && !isReceiver) {
+            return interaction.reply({ content: '❌ Only sender or receiver can confirm.', ephemeral: true });
+        }
+        
+        ticketData.confirmedBy.push(user.id);
+        
+        const confirmCount = ticketData.confirmedBy.length;
+        const needed = 2;
+        
+        await interaction.reply({ content: `✅ <@${user.id}> confirmed the USD amount. (${confirmCount}/${needed} confirmations)` });
+        
+        if (confirmCount >= 2) {
+            const paymentEmbed = new EmbedBuilder()
+                .setTitle('📜 • Payment Information')
+                .setDescription('Make sure to send the **EXACT** amount in LTC.')
+                .addFields(
+                    { name: 'USD Amount', value: `$${ticketData.usdAmount.toFixed(2)}`, inline: false },
+                    { name: 'LTC Amount', value: ticketData.ltcAmount, inline: false },
+                    { name: 'Payment Address', value: `\`${ticketData.address}\``, inline: false },
+                    { name: 'Current LTC Price', value: `$${client.ltcPrice}`, inline: false },
+                    { name: 'Note', value: 'This ticket will be closed within 20 minutes if no transaction was detected.' }
+                )
+                .setColor(0x2b2d31);
 
-        await interaction.reply({ content: `✅ <@${user.id}> confirmed the USD amount.` });
+            const copyRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('copy_details').setLabel('Copy Details').setStyle(ButtonStyle.Primary)
+            );
 
-        const paymentEmbed = new EmbedBuilder()
-            .setTitle('📜 • Payment Information')
-            .setDescription('Make sure to send the **EXACT** amount in LTC.')
-            .addFields(
-                { name: 'USD Amount', value: `$${ticketData.usdAmount.toFixed(2)}`, inline: false },
-                { name: 'LTC Amount', value: ticketData.ltcAmount, inline: false },
-                { name: 'Payment Address', value: `\`${ticketData.address}\``, inline: false },
-                { name: 'Current LTC Price', value: `$${client.ltcPrice}`, inline: false },
-                { name: 'Note', value: 'This ticket will be closed within 20 minutes if no transaction was detected.' }
-            )
+            const channel = await client.channels.fetch(ticketId);
+            await channel.send({ content: `<@${ticketData.senderId}> Send the LTC to the following address.`, embeds: [paymentEmbed], components: [copyRow] });
+
+            startMonitor(ticketId, client);
+        }
+    }
+
+    if (customId.startsWith('incorrect_amount_')) {
+        const ticketId = customId.replace('incorrect_amount_', '');
+        await interaction.reply({ content: `❌ <@${user.id}> said the amount is incorrect. Set a new amount.` });
+        
+        const amountEmbed = new EmbedBuilder()
+            .setTitle('💵 • Set the amount in USD value')
             .setColor(0x2b2d31);
 
-        const copyRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('copy_details').setLabel('Copy Details').setStyle(ButtonStyle.Primary)
+        const amountRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`set_amount_${ticketId}`).setLabel('Set USD Amount').setStyle(ButtonStyle.Primary)
         );
 
         const channel = await client.channels.fetch(ticketId);
-        await channel.send({ content: `<@${ticketData.senderId}> Send the LTC to the following address.`, embeds: [paymentEmbed], components: [copyRow] });
-
-        startMonitor(ticketId, client);
+        await channel.send({ embeds: [amountEmbed], components: [amountRow] });
     }
 }
 
@@ -395,7 +476,8 @@ async function handleModals(interaction, client) {
             address: walletInfo.address,
             addressIndex: addressIndex,
             giving: giving,
-            receiving: receiving
+            receiving: receiving,
+            confirmedBy: []
         });
 
         client.ticketAddresses.set(channel.id, walletInfo);
@@ -439,10 +521,11 @@ async function handleModals(interaction, client) {
 
         ticketData.usdAmount = amount;
         ticketData.ltcAmount = (amount / client.ltcPrice).toFixed(8);
+        ticketData.confirmedBy = []; // Reset confirmations when new amount set
 
         const amountEmbed = new EmbedBuilder()
             .setTitle('💠 • USD amount set to')
-            .setDescription(`**$${amount.toFixed(2)}**\n\nPlease confirm the USD amount.`)
+            .setDescription(`**$${amount.toFixed(2)}**\n\nBoth parties must confirm the USD amount.`)
             .setColor(0x2b2d31);
 
         const confirmRow = new ActionRowBuilder().addComponents(
@@ -451,7 +534,7 @@ async function handleModals(interaction, client) {
         );
 
         const channel = await client.channels.fetch(ticketId);
-        await channel.send({ embeds: [amountEmbed], components: [confirmRow] });
+        await channel.send({ content: `<@${ticketData.senderId}> <@${ticketData.receiverId}>`, embeds: [amountEmbed], components: [confirmRow] });
         await interaction.reply({ content: `✅ Amount set to $${amount.toFixed(2)}`, ephemeral: true });
     }
 
