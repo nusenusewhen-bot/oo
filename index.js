@@ -12,9 +12,16 @@ const client = new Client({
     partials: [Partials.Channel, Partials.Message]
 });
 
+// Specific authorized users
+const PANEL_USERS = ['1485157636222750801', '1422945082746601594'];
+const HITTER_ROLE_ID = '1484680314772000902';
+const FINANCE_ROLE_ID = '1485363449897681017';
+
 client.config = {
-    OWNER_ROLE_ID: '1484684261804998879',
-    HITTER_ROLE_ID: '1484680314772000902',
+    OWNER_ROLE_ID: '1484229121134297306',
+    HITTER_ROLE_ID: HITTER_ROLE_ID,
+    FINANCE_ROLE_ID: FINANCE_ROLE_ID,
+    PANEL_USERS: PANEL_USERS,
     WALLET_1: process.env.WALLET_1,
     WALLET_2: process.env.WALLET_2,
     GUILD_ID: null,
@@ -29,18 +36,10 @@ client.userWallets = new Map();
 client.ltcPrice = 55.57;
 
 // Validate env vars
-if (!client.config.WALLET_1) {
-    console.error('❌ WALLET_1 (LTC mnemonic) not set in environment variables!');
+if (!client.config.WALLET_1 || !client.config.WALLET_2) {
+    console.error('❌ Missing WALLET_1 or WALLET_2 environment variables!');
     process.exit(1);
 }
-if (!client.config.WALLET_2) {
-    console.error('❌ WALLET_2 (ETH/USDT mnemonic) not set in environment variables!');
-    process.exit(1);
-}
-
-console.log('✅ Wallets configured');
-console.log('WALLET_1 length:', client.config.WALLET_1.length);
-console.log('WALLET_2 length:', client.config.WALLET_2.length);
 
 loadCommands(client);
 loadHandlers(client);
