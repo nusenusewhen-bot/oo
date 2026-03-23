@@ -126,7 +126,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             case 'panel':
                 if (!isOwner(user.id)) return deny('Owner only.');
                 
-                // Main info embed
+                // Main info embed - EXACTLY like Jace's
                 const infoEmbed = new EmbedBuilder()
                     .setTitle("Jace's Auto Middleman")
                     .setDescription('• Paid Service\n• Read our ToS before using the bot: #tos-crypto')
@@ -138,7 +138,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     .setDescription('• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**')
                     .setColor(0x2B2D31);
                 
-                // LTC Section embed
+                // LTC Section
                 const ltcEmbed = new EmbedBuilder()
                     .setTitle('Ł • Request Litecoin • Ł')
                     .setColor(0x2B2D31);
@@ -152,7 +152,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                             .setEmoji('Ł')
                     );
                 
-                // USDC Section embed (was USDT in image, changed to USDC per your request)
+                // USDC Section (was USDT in original image)
                 const usdcEmbed = new EmbedBuilder()
                     .setTitle('💲 • Request USDC')
                     .setDescription('**[ERC-20]** • 💲\n• Network: **ETH (ERC-20)**')
@@ -167,10 +167,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
                             .setEmoji('💲')
                     );
                 
+                // Send all panel messages - NO REPLY, just posts
                 await channel.send({ embeds: [infoEmbed, feesEmbed] });
                 await channel.send({ embeds: [ltcEmbed], components: [ltcRow] });
                 await channel.send({ embeds: [usdcEmbed], components: [usdcRow] });
                 
+                // Silent execution
                 await interaction.deferReply({ ephemeral: true });
                 await interaction.deleteReply();
                 break;
@@ -280,22 +282,27 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 });
 
+// Button handler - Panel buttons create tickets
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isButton()) return;
     
     const { customId, user } = interaction;
     
-    // LTC Request - Modal with amount input
+    // LTC Request - Creates ticket
     if (customId === 'request_ltc') {
+        if (!client.config.TICKET_CATEGORY) {
+            return interaction.reply({ content: '❌ Ticket category not set. Use /tickets', ephemeral: true });
+        }
+
         const modal = new ModalBuilder()
-            .setCustomId('ltc_modal')
-            .setTitle('Request LTC');
+            .setCustomId('ltc_ticket_modal')
+            .setTitle('LTC Deal Amount');
         
         const amountInput = new TextInputBuilder()
             .setCustomId('amount')
-            .setLabel('Amount in USD')
+            .setLabel('Deal Amount (USD)')
             .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Enter USD amount')
+            .setPlaceholder('Enter amount in USD')
             .setRequired(true);
         
         const row = new ActionRowBuilder().addComponents(amountInput);
@@ -304,17 +311,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.showModal(modal);
     }
     
-    // USDC Request - Modal with amount input
+    // USDC Request - Creates ticket  
     if (customId === 'request_usdc') {
+        if (!client.config.TICKET_CATEGORY) {
+            return interaction.reply({ content: '❌ Ticket category not set. Use /tickets', ephemeral: true });
+        }
+
         const modal = new ModalBuilder()
-            .setCustomId('usdc_modal')
-            .setTitle('Request USDC');
+            .setCustomId('usdc_ticket_modal')
+            .setTitle('USDC Deal Amount');
         
         const amountInput = new TextInputBuilder()
             .setCustomId('amount')
-            .setLabel('Amount in USD')
+            .setLabel('Deal Amount (USD)')
             .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Enter USD amount')
+            .setPlaceholder('Enter amount in USD')
             .setRequired(true);
         
         const row = new ActionRowBuilder().addComponents(amountInput);
@@ -380,17 +391,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 });
 
+// Modal submissions - Create actual tickets
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isModalSubmit()) return;
     
-    // LTC Modal
-    if (interaction.customId === 'ltc_modal') {
+    // LTC Ticket Creation
+    if (interaction.customId === 'ltc_ticket_modal') {
         const amount = interaction.fields.getTextInputValue('amount');
         
-        if (!client.config.TICKET_CATEGORY) {
-            return interaction.reply({ content: '❌ Auto MM category not set.', ephemeral: true });
-        }
-
         try {
             const ticketCh = await interaction.guild.channels.create({
                 name: `ltc-${interaction.user.username}-${amount}`,
@@ -405,11 +413,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
             const embed = new EmbedBuilder()
                 .setTitle(`🤖 Auto Middleman | LTC`)
-                .setDescription(`Welcome <@${interaction.user.id}>\n**Amount: $${amount}**`)
+                .setDescription(`Welcome <@${interaction.user.id}>\n**Deal Amount: $${amount}**`)
                 .addFields(
-                    { name: 'Deposit Address (LTC)', value: `\`${LTC_ADDRESS}\``, inline: false },
+                    { name: 'Deposit Address', value: `\`${LTC_ADDRESS}\``, inline: false },
                     { name: 'Network', value: 'Litecoin', inline: true },
-                    { name: 'Status', value: '⏳ Awaiting deposit...', inline: true }
+                    { name: 'Status', value: '⏳ Awaiting deposit...', inline: true },
+                    { name: 'Note', value: 'Send exact amount. Funds will be released after confirmation.', inline: false }
                 )
                 .setColor(0xBFBBBB);
 
@@ -438,14 +447,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
     }
     
-    // USDC Modal
-    if (interaction.customId === 'usdc_modal') {
+    // USDC Ticket Creation
+    if (interaction.customId === 'usdc_ticket_modal') {
         const amount = interaction.fields.getTextInputValue('amount');
         
-        if (!client.config.TICKET_CATEGORY) {
-            return interaction.reply({ content: '❌ Auto MM category not set.', ephemeral: true });
-        }
-
         try {
             const ticketCh = await interaction.guild.channels.create({
                 name: `usdc-${interaction.user.username}-${amount}`,
@@ -460,11 +465,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
             const embed = new EmbedBuilder()
                 .setTitle(`🤖 Auto Middleman | USDC`)
-                .setDescription(`Welcome <@${interaction.user.id}>\n**Amount: $${amount}**`)
+                .setDescription(`Welcome <@${interaction.user.id}>\n**Deal Amount: $${amount}**`)
                 .addFields(
-                    { name: 'Deposit Address (USDC)', value: `\`${USDC_ADDRESS}\``, inline: false },
+                    { name: 'Deposit Address', value: `\`${USDC_ADDRESS}\``, inline: false },
                     { name: 'Network', value: 'Ethereum (ERC-20)', inline: true },
-                    { name: 'Status', value: '⏳ Awaiting deposit...', inline: true }
+                    { name: 'Status', value: '⏳ Awaiting deposit...', inline: true },
+                    { name: 'Note', value: 'Send exact amount. Funds will be released after confirmation.', inline: false }
                 )
                 .setColor(0x2775CA);
 
