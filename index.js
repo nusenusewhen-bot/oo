@@ -125,6 +125,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         switch (commandName) {
             case 'panel':
                 if (!isOwner(user.id)) return deny('Owner only.');
+                // EXACTLY LIKE BEFORE - Original structure
                 const panelEmbed = new EmbedBuilder()
                     .setTitle('🎰 Crypto Middleman Service')
                     .setDescription('Select your ticket tier below:')
@@ -135,12 +136,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
                         { name: 'Tier 3', value: 'Middleman ($1000+)', inline: true }
                     );
                 
-                const panelRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('tier1').setLabel('Tier 1 ($200)').setStyle(ButtonStyle.Primary).setEmoji('🥉'),
-                    new ButtonBuilder().setCustomId('tier2').setLabel('Tier 2 ($500)').setStyle(ButtonStyle.Secondary).setEmoji('🥈'),
-                    new ButtonBuilder().setCustomId('tier3').setLabel('Tier 3 ($1000+)').setStyle(ButtonStyle.Success).setEmoji('🥇')
-                );
-                // Silent - no reply, just post panel
+                const panelRow = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('ticket_tier1')
+                            .setLabel('Tier 1 ($200)')
+                            .setStyle(ButtonStyle.Primary)
+                            .setEmoji('🥉'),
+                        new ButtonBuilder()
+                            .setCustomId('ticket_tier2')
+                            .setLabel('Tier 2 ($500)')
+                            .setStyle(ButtonStyle.Secondary)
+                            .setEmoji('🥈'),
+                        new ButtonBuilder()
+                            .setCustomId('ticket_tier3')
+                            .setLabel('Tier 3 ($1000+)')
+                            .setStyle(ButtonStyle.Success)
+                            .setEmoji('🥇')
+                    );
+                
                 await channel.send({ embeds: [panelEmbed], components: [panelRow] });
                 await interaction.deferReply({ ephemeral: true });
                 await interaction.deleteReply();
@@ -158,12 +172,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
                         { name: 'Tier 3', value: 'Middleman ($1000+)', inline: true }
                     );
                 
-                const manualRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('manual_tier1').setLabel('Tier 1 ($200)').setStyle(ButtonStyle.Primary).setEmoji('🥉'),
-                    new ButtonBuilder().setCustomId('manual_tier2').setLabel('Tier 2 ($500)').setStyle(ButtonStyle.Secondary).setEmoji('🥈'),
-                    new ButtonBuilder().setCustomId('manual_tier3').setLabel('Tier 3 ($1000+)').setStyle(ButtonStyle.Success).setEmoji('🥇')
-                );
-                // Silent - no reply, just post panel
+                const manualRow = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('manual_tier1')
+                            .setLabel('Tier 1 ($200)')
+                            .setStyle(ButtonStyle.Primary)
+                            .setEmoji('🥉'),
+                        new ButtonBuilder()
+                            .setCustomId('manual_tier2')
+                            .setLabel('Tier 2 ($500)')
+                            .setStyle(ButtonStyle.Secondary)
+                            .setEmoji('🥈'),
+                        new ButtonBuilder()
+                            .setCustomId('manual_tier3')
+                            .setLabel('Tier 3 ($1000+)')
+                            .setStyle(ButtonStyle.Success)
+                            .setEmoji('🥇')
+                    );
+                
                 await channel.send({ embeds: [manualEmbed], components: [manualRow] });
                 await interaction.deferReply({ ephemeral: true });
                 await interaction.deleteReply();
@@ -237,13 +264,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 });
 
+// Button handler - EXACTLY LIKE BEFORE with crypto modal
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isButton()) return;
     
     const { customId, user } = interaction;
     
-    if (['tier1', 'tier2', 'tier3'].includes(customId)) {
-        const tier = customId.replace('tier', '');
+    // Original tier buttons with crypto modal
+    if (['ticket_tier1', 'ticket_tier2', 'ticket_tier3'].includes(customId)) {
+        const tier = customId.replace('ticket_tier', '');
         
         const modal = new ModalBuilder()
             .setCustomId(`crypto_modal_${tier}`)
@@ -271,6 +300,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.showModal(modal);
     }
     
+    // Manual tiers - direct LTC ticket
     if (customId.startsWith('manual_tier')) {
         const tier = customId.replace('manual_tier', '');
         const limits = { '1': 200, '2': 500, '3': 1000 };
@@ -302,9 +332,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 )
                 .setColor(0xBFBBBB);
 
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
-            );
+            const row = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('close_ticket')
+                        .setLabel('Close Ticket')
+                        .setStyle(ButtonStyle.Danger)
+                );
 
             await ticketCh.send({ content: `<@${user.id}> <@&${HITTER_ROLE_ID}>`, embeds: [embed], components: [row] });
             await interaction.reply({ content: `✅ Manual MM ticket created: ${ticketCh}`, ephemeral: true });
@@ -323,6 +357,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 });
 
+// Modal submit handler
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isModalSubmit()) return;
     
@@ -368,9 +403,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 )
                 .setColor(color);
 
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
-            );
+            const row = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('close_ticket')
+                        .setLabel('Close Ticket')
+                        .setStyle(ButtonStyle.Danger)
+                );
 
             await ticketCh.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
             await interaction.reply({ content: `✅ Auto MM ticket created: ${ticketCh}`, ephemeral: true });
