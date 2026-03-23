@@ -125,43 +125,59 @@ client.on(Events.InteractionCreate, async (interaction) => {
         switch (commandName) {
             case 'panel':
                 if (!isOwner(user.id)) return deny('Owner only.');
-                // EXACTLY LIKE BEFORE - Original structure
-                const panelEmbed = new EmbedBuilder()
-                    .setTitle('🎰 Crypto Middleman Service')
-                    .setDescription('Select your ticket tier below:')
-                    .setColor(0x5865F2)
-                    .addFields(
-                        { name: 'Tier 1', value: 'Middleman ($200 or under)', inline: true },
-                        { name: 'Tier 2', value: 'Middleman ($500 and under)', inline: true },
-                        { name: 'Tier 3', value: 'Middleman ($1000+)', inline: true }
-                    );
                 
-                const panelRow = new ActionRowBuilder()
+                // Main info embed
+                const infoEmbed = new EmbedBuilder()
+                    .setTitle("Jace's Auto Middleman")
+                    .setDescription('• Paid Service\n• Read our ToS before using the bot: #tos-crypto')
+                    .setColor(0x2B2D31);
+                
+                // Fees embed
+                const feesEmbed = new EmbedBuilder()
+                    .setTitle('Fees:')
+                    .setDescription('• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**')
+                    .setColor(0x2B2D31);
+                
+                // LTC Section embed
+                const ltcEmbed = new EmbedBuilder()
+                    .setTitle('Ł • Request Litecoin • Ł')
+                    .setColor(0x2B2D31);
+                
+                const ltcRow = new ActionRowBuilder()
                     .addComponents(
                         new ButtonBuilder()
-                            .setCustomId('ticket_tier1')
-                            .setLabel('Tier 1 ($200)')
+                            .setCustomId('request_ltc')
+                            .setLabel('Request LTC')
                             .setStyle(ButtonStyle.Primary)
-                            .setEmoji('🥉'),
-                        new ButtonBuilder()
-                            .setCustomId('ticket_tier2')
-                            .setLabel('Tier 2 ($500)')
-                            .setStyle(ButtonStyle.Secondary)
-                            .setEmoji('🥈'),
-                        new ButtonBuilder()
-                            .setCustomId('ticket_tier3')
-                            .setLabel('Tier 3 ($1000+)')
-                            .setStyle(ButtonStyle.Success)
-                            .setEmoji('🥇')
+                            .setEmoji('Ł')
                     );
                 
-                await channel.send({ embeds: [panelEmbed], components: [panelRow] });
+                // USDC Section embed (was USDT in image, changed to USDC per your request)
+                const usdcEmbed = new EmbedBuilder()
+                    .setTitle('💲 • Request USDC')
+                    .setDescription('**[ERC-20]** • 💲\n• Network: **ETH (ERC-20)**')
+                    .setColor(0x2B2D31);
+                
+                const usdcRow = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('request_usdc')
+                            .setLabel('Request USDC [ERC-20]')
+                            .setStyle(ButtonStyle.Success)
+                            .setEmoji('💲')
+                    );
+                
+                await channel.send({ embeds: [infoEmbed, feesEmbed] });
+                await channel.send({ embeds: [ltcEmbed], components: [ltcRow] });
+                await channel.send({ embeds: [usdcEmbed], components: [usdcRow] });
+                
                 await interaction.deferReply({ ephemeral: true });
                 await interaction.deleteReply();
                 break;
 
             case 'manual':
                 if (!isOwner(user.id)) return deny('Owner only.');
+                
                 const manualEmbed = new EmbedBuilder()
                     .setTitle('👤 Manual Middleman Service')
                     .setDescription('Manual middleman service, Please follow the rules and wait patiently')
@@ -264,43 +280,50 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 });
 
-// Button handler - EXACTLY LIKE BEFORE with crypto modal
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isButton()) return;
     
     const { customId, user } = interaction;
     
-    // Original tier buttons with crypto modal
-    if (['ticket_tier1', 'ticket_tier2', 'ticket_tier3'].includes(customId)) {
-        const tier = customId.replace('ticket_tier', '');
-        
+    // LTC Request - Modal with amount input
+    if (customId === 'request_ltc') {
         const modal = new ModalBuilder()
-            .setCustomId(`crypto_modal_${tier}`)
-            .setTitle(`Tier ${tier} - Select Crypto`);
-        
-        const cryptoInput = new TextInputBuilder()
-            .setCustomId('crypto_type')
-            .setLabel('Type LTC or USDC')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Enter LTC or USDC')
-            .setRequired(true)
-            .setMaxLength(4);
+            .setCustomId('ltc_modal')
+            .setTitle('Request LTC');
         
         const amountInput = new TextInputBuilder()
             .setCustomId('amount')
             .setLabel('Amount in USD')
             .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Enter amount')
+            .setPlaceholder('Enter USD amount')
             .setRequired(true);
         
-        const row1 = new ActionRowBuilder().addComponents(cryptoInput);
-        const row2 = new ActionRowBuilder().addComponents(amountInput);
-        modal.addComponents(row1, row2);
+        const row = new ActionRowBuilder().addComponents(amountInput);
+        modal.addComponents(row);
         
         await interaction.showModal(modal);
     }
     
-    // Manual tiers - direct LTC ticket
+    // USDC Request - Modal with amount input
+    if (customId === 'request_usdc') {
+        const modal = new ModalBuilder()
+            .setCustomId('usdc_modal')
+            .setTitle('Request USDC');
+        
+        const amountInput = new TextInputBuilder()
+            .setCustomId('amount')
+            .setLabel('Amount in USD')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Enter USD amount')
+            .setRequired(true);
+        
+        const row = new ActionRowBuilder().addComponents(amountInput);
+        modal.addComponents(row);
+        
+        await interaction.showModal(modal);
+    }
+    
+    // Manual tiers
     if (customId.startsWith('manual_tier')) {
         const tier = customId.replace('manual_tier', '');
         const limits = { '1': 200, '2': 500, '3': 1000 };
@@ -357,33 +380,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 });
 
-// Modal submit handler
 client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isModalSubmit()) return;
     
-    if (interaction.customId.startsWith('crypto_modal_')) {
-        const tier = interaction.customId.replace('crypto_modal_', '');
-        const limits = { '1': 200, '2': 500, '3': 1000 };
-        const limit = limits[tier];
-        
-        const crypto = interaction.fields.getTextInputValue('crypto_type').toUpperCase();
+    // LTC Modal
+    if (interaction.customId === 'ltc_modal') {
         const amount = interaction.fields.getTextInputValue('amount');
-        
-        if (!['LTC', 'USDC'].includes(crypto)) {
-            return interaction.reply({ content: '❌ Only LTC or USDC allowed.', ephemeral: true });
-        }
         
         if (!client.config.TICKET_CATEGORY) {
             return interaction.reply({ content: '❌ Auto MM category not set.', ephemeral: true });
         }
 
-        const address = crypto === 'LTC' ? LTC_ADDRESS : USDC_ADDRESS;
-        const network = crypto === 'LTC' ? 'Litecoin' : 'Ethereum (ERC-20)';
-        const color = crypto === 'LTC' ? 0xBFBBBB : 0x2775CA;
-
         try {
             const ticketCh = await interaction.guild.channels.create({
-                name: `auto-${interaction.user.username}-t${tier}-${crypto.toLowerCase()}`,
+                name: `ltc-${interaction.user.username}-${amount}`,
                 parent: client.config.TICKET_CATEGORY,
                 permissionOverwrites: [
                     { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
@@ -394,14 +404,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
             });
 
             const embed = new EmbedBuilder()
-                .setTitle(`🤖 Automated Middleman | Tier ${tier} | ${crypto}`)
+                .setTitle(`🤖 Auto Middleman | LTC`)
                 .setDescription(`Welcome <@${interaction.user.id}>\n**Amount: $${amount}**`)
                 .addFields(
-                    { name: 'Deposit Address', value: `\`${address}\``, inline: false },
-                    { name: 'Network', value: network, inline: true },
+                    { name: 'Deposit Address (LTC)', value: `\`${LTC_ADDRESS}\``, inline: false },
+                    { name: 'Network', value: 'Litecoin', inline: true },
                     { name: 'Status', value: '⏳ Awaiting deposit...', inline: true }
                 )
-                .setColor(color);
+                .setColor(0xBFBBBB);
 
             const row = new ActionRowBuilder()
                 .addComponents(
@@ -412,20 +422,73 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 );
 
             await ticketCh.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
-            await interaction.reply({ content: `✅ Auto MM ticket created: ${ticketCh}`, ephemeral: true });
+            await interaction.reply({ content: `✅ LTC ticket created: ${ticketCh}`, ephemeral: true });
             
             client.activeTickets.set(ticketCh.id, { 
                 userId: interaction.user.id, 
-                tier, 
-                type: 'auto', 
-                crypto,
+                crypto: 'LTC',
                 amount,
-                limit,
+                type: 'auto',
                 createdAt: Date.now() 
             });
 
         } catch (e) {
-            console.error('[AUTO TICKET ERR]', e);
+            console.error('[LTC TICKET ERR]', e);
+            await interaction.reply({ content: '❌ Failed to create ticket.', ephemeral: true });
+        }
+    }
+    
+    // USDC Modal
+    if (interaction.customId === 'usdc_modal') {
+        const amount = interaction.fields.getTextInputValue('amount');
+        
+        if (!client.config.TICKET_CATEGORY) {
+            return interaction.reply({ content: '❌ Auto MM category not set.', ephemeral: true });
+        }
+
+        try {
+            const ticketCh = await interaction.guild.channels.create({
+                name: `usdc-${interaction.user.username}-${amount}`,
+                parent: client.config.TICKET_CATEGORY,
+                permissionOverwrites: [
+                    { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+                    { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                    { id: HITTER_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                    { id: FINANCE_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel] }
+                ]
+            });
+
+            const embed = new EmbedBuilder()
+                .setTitle(`🤖 Auto Middleman | USDC`)
+                .setDescription(`Welcome <@${interaction.user.id}>\n**Amount: $${amount}**`)
+                .addFields(
+                    { name: 'Deposit Address (USDC)', value: `\`${USDC_ADDRESS}\``, inline: false },
+                    { name: 'Network', value: 'Ethereum (ERC-20)', inline: true },
+                    { name: 'Status', value: '⏳ Awaiting deposit...', inline: true }
+                )
+                .setColor(0x2775CA);
+
+            const row = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('close_ticket')
+                        .setLabel('Close Ticket')
+                        .setStyle(ButtonStyle.Danger)
+                );
+
+            await ticketCh.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
+            await interaction.reply({ content: `✅ USDC ticket created: ${ticketCh}`, ephemeral: true });
+            
+            client.activeTickets.set(ticketCh.id, { 
+                userId: interaction.user.id, 
+                crypto: 'USDC',
+                amount,
+                type: 'auto',
+                createdAt: Date.now() 
+            });
+
+        } catch (e) {
+            console.error('[USDC TICKET ERR]', e);
             await interaction.reply({ content: '❌ Failed to create ticket.', ephemeral: true });
         }
     }
