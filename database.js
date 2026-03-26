@@ -1,13 +1,16 @@
 const Database = require('better-sqlite3');
 const db = new Database('./trades.db');
 
+// Drop and recreate to fix schema
 db.exec(`
+  DROP TABLE IF EXISTS trades;
+  
   CREATE TABLE IF NOT EXISTS config (
     key TEXT PRIMARY KEY,
     value TEXT
   );
   
-  CREATE TABLE IF NOT EXISTS trades (
+  CREATE TABLE trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     channelId TEXT,
     user1Id TEXT,
