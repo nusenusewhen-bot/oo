@@ -54,7 +54,7 @@ function loadConfig() {
   } catch (e) {
     console.log('Config load error:', e.message);
   }
-}
+}byy
 
 function generateFakeTxid() {
   const chars = '0123456789abcdef';
