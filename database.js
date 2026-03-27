@@ -2,14 +2,16 @@ const Database = require('better-sqlite3');
 const db = new Database('./trades.db');
 
 db.exec(`
-  DROP TABLE IF EXISTS trades;
-  
   CREATE TABLE IF NOT EXISTS config (
     key TEXT PRIMARY KEY,
     value TEXT
   );
   
-  CREATE TABLE trades (
+  CREATE TABLE IF NOT EXISTS whitelist (
+    userId TEXT PRIMARY KEY
+  );
+  
+  CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     channelId TEXT,
     user1Id TEXT,
