@@ -1,7 +1,6 @@
 const Database = require('better-sqlite3');
 const db = new Database('./trades.db');
 
-// Drop and recreate to fix schema
 db.exec(`
   DROP TABLE IF EXISTS trades;
   
