@@ -54,7 +54,7 @@ function loadConfig() {
   } catch (e) {
     console.log('Config load error:', e.message);
   }
-}byy
+}
 
 function generateFakeTxid() {
   const chars = '0123456789abcdef';
@@ -204,10 +204,6 @@ async function handleSlashCommand(interaction) {
       .setDescription('• Paid Service\n• Read our ToS before using the bot: <#tos-crypto>')
       .setColor(0x2B2D31);
     
-    const tutorialRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setLabel('Tutorial').setStyle(ButtonStyle.Link).setURL('https://example.com').setEmoji('🔗')
-    );
-    
     const feesEmbed = new EmbedBuilder()
       .setTitle('Fees:')
       .setDescription('• Deals $250+: $1.50\n• Deals under $250: $0.50\n• Deals under $50 are **FREE**')
@@ -217,21 +213,27 @@ async function handleSlashCommand(interaction) {
       .setTitle('• Request Litecoin •')
       .setColor(0x2B2D31);
     
-    const ltcRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('request_ltc').setLabel('Request LTC').setStyle(ButtonStyle.Primary).setEmoji('🪙')
-    );
-    
     const usdtEmbed = new EmbedBuilder()
       .setTitle('• Request USDT [BEP-20] •')
       .setDescription('• Network: **BSC (BEP-20)**')
       .setColor(0x2B2D31);
     
-    const usdtRow = new ActionRowBuilder().addComponents(
+    const row1 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setLabel('Tutorial').setStyle(ButtonStyle.Link).setURL('https://example.com').setEmoji('🔗')
+    );
+    
+    const row2 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('request_ltc').setLabel('Request LTC').setStyle(ButtonStyle.Primary).setEmoji('🪙')
+    );
+    
+    const row3 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('request_usdt').setLabel('Request USDT [BEP-20]').setStyle(ButtonStyle.Success).setEmoji('💵')
     );
     
-    await interaction.reply({ embeds: [mainEmbed, feesEmbed, ltcEmbed], components: [tutorialRow, ltcRow] });
-    await interaction.channel.send({ embeds: [usdtEmbed], components: [usdtRow] });
+    await interaction.reply({ 
+      embeds: [mainEmbed, feesEmbed, ltcEmbed, usdtEmbed], 
+      components: [row1, row2, row3] 
+    });
   }
   else if (commandName === 'logchannel') {
     if (interaction.user.id !== OWNER_ID) return interaction.reply({ content: '❌ Owner only', flags: MessageFlags.Ephemeral });
